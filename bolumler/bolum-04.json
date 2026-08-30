@@ -15,10 +15,10 @@
   ],
   "ortamlar": [
     "RAIL YARD",
+    "MAGENTA HALL",
+    "ACID LAB",
+    "VIOLET VOID",
     "MIDNIGHT",
-    "NEON CITY",
-    "VOLTAGE",
-    "DEEP DIVE",
     "GRID ZERO"
   ],
   "ortam_olcu": [
@@ -29,7 +29,7 @@
     176,
     220
   ],
-  "_ortam": "Ray tunelinden baslayip sehre cikiyor, sonra elektrik/derinlik, en sonda cıplak izgara. Koyu -> acik -> koyu bir yay.",
+  "_ortam": "Alti ortamin ucu REFERANS KARELERDEN olculerek turetildi (docs/OLCUM-KANAL-KARELERI.md): MAGENTA HALL <- Dance Mode, ACID LAB <- Beat Motion, VIOLET VOID <- Escapify. Ray tuneliyle basliyor, sonra olculen uc palet, sonda ciplak izgara.",
   "_kaliplar": "Sadece dort hareketten kurulu. Mola kaliplari da ayni dort hareketi kullaniyor, sadece cok seyrek - ekran bosalmiyor ama nefes aliniyor.",
   "kaliplar": {
     "s2a": [
@@ -195,13 +195,13 @@
     [
       48,
       64,
-      "d15",
+      "d20",
       "side-to-side"
     ],
     [
       64,
       80,
-      "d25",
+      "d30",
       "jacks"
     ],
     [
@@ -213,19 +213,19 @@
     [
       88,
       104,
-      "d25",
+      "d20",
       "punch"
     ],
     [
       104,
       120,
-      "d20",
+      "d30",
       "charleston"
     ],
     [
       120,
       136,
-      "d30",
+      "d15",
       "jacks"
     ],
     [
@@ -237,7 +237,7 @@
     [
       144,
       160,
-      "d30",
+      "d35",
       "duck"
     ],
     [
@@ -249,7 +249,7 @@
     [
       176,
       192,
-      "d35",
+      "d25",
       "punch"
     ],
     [
@@ -261,7 +261,7 @@
     [
       200,
       216,
-      "d35",
+      "d25",
       "running-man"
     ],
     [
@@ -273,15 +273,16 @@
     [
       232,
       248,
-      "d40",
+      "d25",
       "punch"
     ],
     [
       248,
       264,
-      "d40",
+      "d35",
       "jacks"
     ]
   ],
-  "_hareket_dagilimi": "Dort hareket 264 olcuye zorluga gore yayildi. Ogretme bolumu hepsini TEK TEK tanitiyor - onceki halde yumruk 88. olcuye kadar hic ogretilmiyordu, izleyici hazir olmadan karsisina cikiyordu."
+  "_hareket_dagilimi": "Dort hareket 264 olcuye zorluga gore yayildi. Ogretme bolumu hepsini TEK TEK tanitiyor - onceki halde yumruk 88. olcuye kadar hic ogretilmiyordu, izleyici hazir olmadan karsisina cikiyordu.",
+  "_iskelet_kaynak": "Yogunluk kademeleri STAY ON BEAT #11'in OLCULEN egrisinden turetildi (docs/OLCUM-STAY-ON-BEAT-11.md): 966 cue zamani cikarilip 16 olculuk bloklara bolundu, 13 bloga yeniden orneklendirildi, en yakin kademeye eslendi. Yani zorluk profili tahmin degil, calistigi kanitlanmis bir videodan olculdu."
 }
