@@ -1501,6 +1501,59 @@ function hudCiz(t, combo, epic, kmCombo, seviye, duyuru, sonVurus){
     hx.restore();
   }
 
+  // ------------------------------------------------- ABONE CAGRISI
+  // Video boyunca her 8 OLCUDE bir (120 BPM'de 16 sn, 130'da 14,8 sn).
+  // Saniyeye degil OLCUYE kilitli: cagri her seferinde vurusun uzerine
+  // dusuyor, muzikle birlikte "tik" atiyor - rastgele beliren bir kutu
+  // gibi degil, ritmin parcasi gibi okunuyor.
+  //
+  // Yeri SOL ALT: koridor orta bantta akiyor, siluet paneli ustte.
+  // Burasi karenin tek gercekten bos kosesi - hicbir seyin onunu kapatmiyor.
+  const AB_ARA = 8 * OLCU;              // gorunme araligi
+  const AB_SURE = 2.6;                  // ekranda kalma
+  const abT = t % AB_ARA;
+  if (t > OLCU * 2 && abT < AB_SURE) {
+    const q = abT / AB_SURE;
+    // gir (0-0.18) - tut - cik (0.82-1)
+    const giris = Math.min(1, q / 0.18);
+    const cikis = q > 0.82 ? 1 - (q - 0.82) / 0.18 : 1;
+    const alfa = Math.min(giris, cikis);
+    const kay = (1 - giris) * -160 * k;            // soldan kayarak girer
+    // vurus nabzi: her vurusta hafif buyume
+    const vn = Math.max(0, 1 - (t % VURUS) / 0.18);
+    const olcek = (0.94 + 0.06 * giris) * (1 + 0.05 * vn);
+
+    hx.save();
+    hx.globalAlpha = alfa;
+    hx.font = `700 ${Math.round(40*k)}px Arial Black, sans-serif`;
+    const yazi = 'SUBSCRIBE';
+    const gen = hx.measureText(yazi).width + 104*k, yuk = 66*k;
+    const ax0 = 46*k + kay, ay0 = H - yuk - 46*k;
+    hx.translate(ax0, ay0 + yuk/2);
+    hx.scale(olcek, olcek);
+    hx.translate(-ax0, -(ay0 + yuk/2));
+
+    hx.shadowColor = '#ff0033'; hx.shadowBlur = (26 + 22*vn) * k;
+    hx.fillStyle = '#ff0033';
+    hx.beginPath(); hx.roundRect(ax0, ay0, gen, yuk, 12*k); hx.fill();
+    hx.shadowBlur = 0;
+    hx.lineWidth = 3.5*k; hx.strokeStyle = 'rgba(255,255,255,0.95)';
+    hx.beginPath(); hx.roundRect(ax0, ay0, gen, yuk, 12*k); hx.stroke();
+
+    // oynat ucgeni - YouTube isareti
+    hx.fillStyle = '#ffffff';
+    const px = ax0 + 30*k, py = ay0 + yuk/2, pb = 15*k;
+    hx.beginPath();
+    hx.moveTo(px + pb, py); hx.lineTo(px - pb*0.7, py - pb);
+    hx.lineTo(px - pb*0.7, py + pb); hx.closePath(); hx.fill();
+
+    hx.fillStyle = '#ffffff';
+    hx.textAlign = 'left'; hx.textBaseline = 'middle';
+    hx.fillText(yazi, ax0 + 62*k, ay0 + yuk/2 + 2*k);
+    hx.restore();
+    hx.textAlign = 'left'; hx.textBaseline = 'alphabetic';
+  }
+
   hx.textBaseline = 'alphabetic';
   hx.shadowBlur = 0;
 }

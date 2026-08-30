@@ -1,69 +1,287 @@
 {
   "_": "Bolum 4. RAIL YARD ile basliyor. SADECE 4 HAREKET: yana adim, ziplama, comelme, yumruk. Kacis, esneme ve tutma notasi bu bolumde YOK - ogrenilecek sey az oldugu icin izleyici ilk 30 saniyede oyunu cozuyor.",
-
   "no": 4,
   "baslik": "DANCE MODE #4 | Interactive Immersive Warm Up | Full Body Cardio",
   "tema": "b",
   "toplam_olcu": 264,
   "muzik": "01-muzik/tam-bolum-264-120bpm.wav",
-
   "mekanik": "temel",
   "_mekanik": "Ileri cue tipi yok. Dort temel hareket, aynalama ile sol/sag dengeli.",
-
-  "hareketler": ["step_L / step_R", "jump", "duck", "punch"],
-
-  "ortamlar": ["RAIL YARD", "MIDNIGHT", "NEON CITY", "VOLTAGE", "DEEP DIVE", "GRID ZERO"],
-  "ortam_olcu": [0, 44, 88, 132, 176, 220],
+  "hareketler": [
+    "step_L / step_R",
+    "jump",
+    "duck",
+    "punch"
+  ],
+  "ortamlar": [
+    "RAIL YARD",
+    "MIDNIGHT",
+    "NEON CITY",
+    "VOLTAGE",
+    "DEEP DIVE",
+    "GRID ZERO"
+  ],
+  "ortam_olcu": [
+    0,
+    44,
+    88,
+    132,
+    176,
+    220
+  ],
   "_ortam": "Ray tunelinden baslayip sehre cikiyor, sonra elektrik/derinlik, en sonda cıplak izgara. Koyu -> acik -> koyu bir yay.",
-
   "_kaliplar": "Sadece dort hareketten kurulu. Mola kaliplari da ayni dort hareketi kullaniyor, sadece cok seyrek - ekran bosalmiyor ama nefes aliniyor.",
   "kaliplar": {
-    "s2a": ["step_L", null, "step_R", null],
-    "s2b": ["jump", null, "duck", null],
-    "s3a": ["step_L", "jump", "step_R", null],
-    "s3b": ["step_L", null, "step_R", "duck"],
-    "s3d": ["punch", null, "step_R", "duck"],
-    "s4a": ["step_L", "jump", "step_R", "duck"],
-    "s4c": ["step_L", "punch", "step_R", "jump"],
-    "m1": ["step_L", null, null, null],
-    "m2": [null, null, "step_R", null],
-    "m0": [null, null, null, null]
+    "s2a": [
+      "step_L",
+      null,
+      "step_R",
+      null
+    ],
+    "s2b": [
+      "jump",
+      null,
+      "duck",
+      null
+    ],
+    "s3a": [
+      "step_L",
+      "jump",
+      "step_R",
+      null
+    ],
+    "s3b": [
+      "step_L",
+      null,
+      "step_R",
+      "duck"
+    ],
+    "s3d": [
+      "punch",
+      null,
+      "step_R",
+      "duck"
+    ],
+    "s4a": [
+      "step_L",
+      "jump",
+      "step_R",
+      "duck"
+    ],
+    "s4c": [
+      "step_L",
+      "punch",
+      "step_R",
+      "jump"
+    ],
+    "m1": [
+      "step_L",
+      null,
+      null,
+      null
+    ],
+    "m2": [
+      null,
+      null,
+      "step_R",
+      null
+    ],
+    "m0": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "s2c": [
+      "punch",
+      null,
+      "step_R",
+      null
+    ],
+    "s2d": [
+      "duck",
+      null,
+      "jump",
+      null
+    ],
+    "s3c": [
+      "step_L",
+      "punch",
+      "step_R",
+      null
+    ]
   },
-
   "kademeler": {
-    "d15": ["s2a", "m0"],
-    "d20": ["s2a", "s2b"],
-    "d25": ["s2a", "s3a", "s2b", "s3b"],
-    "d30": ["s3a", "s3d", "s3b", "s3a"],
-    "d35": ["s3a", "s4a", "s3b", "s4c"],
-    "d40": ["s4a", "s4c"],
-    "mola": ["m1", "m0", "m2", "m0"]
+    "d15": [
+      "s2a",
+      "m0"
+    ],
+    "d20": [
+      "s2a",
+      "s2b"
+    ],
+    "d25": [
+      "s2a",
+      "s3a",
+      "s2d",
+      "s3b"
+    ],
+    "d30": [
+      "s3a",
+      "s3c",
+      "s3b",
+      "s3d"
+    ],
+    "d35": [
+      "s3a",
+      "s4a",
+      "s3c",
+      "s4c"
+    ],
+    "d40": [
+      "s4a",
+      "s4c"
+    ],
+    "mola": [
+      "m1",
+      "m0",
+      "m2",
+      "m0"
+    ],
+    "og1": [
+      "s2a",
+      "m0"
+    ],
+    "og2": [
+      "s2b",
+      "s2a"
+    ],
+    "og3": [
+      "s2c",
+      "s2a"
+    ]
   },
-
   "iskelet": [
-    [0,   4,   "bos",  "nefes"],
-    [4,   14,  "d15",  "adim"],
-    [14,  24,  "d20",  "jump"],
-    [24,  32,  "d20",  "duck"],
-
-    [32,  48,  "d20",  "adim"],
-    [48,  64,  "d15",  "side-to-side"],
-    [64,  80,  "d25",  "jacks"],
-    [80,  88,  "mola", "neck-roll"],
-
-    [88,  104, "d25",  "punch"],
-    [104, 120, "d20",  "charleston"],
-    [120, 136, "d30",  "jacks"],
-    [136, 144, "mola", "arm-stretch"],
-
-    [144, 160, "d30",  "duck"],
-    [160, 176, "d25",  "kick-step"],
-    [176, 192, "d35",  "punch"],
-    [192, 200, "mola", "neck-roll"],
-
-    [200, 216, "d35",  "running-man"],
-    [216, 232, "d30",  "jump-standing"],
-    [232, 248, "d40",  "punch"],
-    [248, 264, "d40",  "jacks"]
-  ]
+    [
+      0,
+      4,
+      "bos",
+      "nefes"
+    ],
+    [
+      4,
+      14,
+      "og1",
+      "adim"
+    ],
+    [
+      14,
+      24,
+      "og2",
+      "jump"
+    ],
+    [
+      24,
+      32,
+      "og3",
+      "punch"
+    ],
+    [
+      32,
+      48,
+      "d20",
+      "adim"
+    ],
+    [
+      48,
+      64,
+      "d15",
+      "side-to-side"
+    ],
+    [
+      64,
+      80,
+      "d25",
+      "jacks"
+    ],
+    [
+      80,
+      88,
+      "mola",
+      "neck-roll"
+    ],
+    [
+      88,
+      104,
+      "d25",
+      "punch"
+    ],
+    [
+      104,
+      120,
+      "d20",
+      "charleston"
+    ],
+    [
+      120,
+      136,
+      "d30",
+      "jacks"
+    ],
+    [
+      136,
+      144,
+      "mola",
+      "arm-stretch"
+    ],
+    [
+      144,
+      160,
+      "d30",
+      "duck"
+    ],
+    [
+      160,
+      176,
+      "d25",
+      "kick-step"
+    ],
+    [
+      176,
+      192,
+      "d35",
+      "punch"
+    ],
+    [
+      192,
+      200,
+      "mola",
+      "neck-roll"
+    ],
+    [
+      200,
+      216,
+      "d35",
+      "running-man"
+    ],
+    [
+      216,
+      232,
+      "d30",
+      "jump-standing"
+    ],
+    [
+      232,
+      248,
+      "d40",
+      "punch"
+    ],
+    [
+      248,
+      264,
+      "d40",
+      "jacks"
+    ]
+  ],
+  "_hareket_dagilimi": "Dort hareket 264 olcuye zorluga gore yayildi. Ogretme bolumu hepsini TEK TEK tanitiyor - onceki halde yumruk 88. olcuye kadar hic ogretilmiyordu, izleyici hazir olmadan karsisina cikiyordu."
 }
