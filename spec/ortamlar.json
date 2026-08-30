@@ -449,6 +449,76 @@
       "en": 0.84,
       "boy": 1.24,
       "yer": 4.4
+    },
+    "MAGENTA HALL": {
+      "gok": "#241020",
+      "dekor": "ray",
+      "grid": [
+        "#ff2fd0",
+        "#a020ff",
+        "#ffffff"
+      ],
+      "kemer": [
+        "#ff2fd0",
+        "#ffffff",
+        "#a020ff",
+        "#ff8800",
+        "#ff66e0"
+      ],
+      "ufuk": "#ff2fd0",
+      "ara": 1.6,
+      "olcek": 0.92,
+      "bicim": "keskin",
+      "en": 0.9,
+      "boy": 1.18,
+      "yer": 4.5
+    },
+    "ACID LAB": {
+      "gok": "#000000",
+      "dekor": "devre",
+      "grid": [
+        "#bbff77",
+        "#dd7722",
+        "#882222"
+      ],
+      "kemer": [
+        "#bbff77",
+        "#dd7722",
+        "#882222",
+        "#447733",
+        "#ffffff"
+      ],
+      "ufuk": "#bbff77",
+      "ara": 2.3,
+      "olcek": 1.06,
+      "bicim": "tonoz",
+      "en": 0.88,
+      "boy": 1.26,
+      "yer": 4.6
+    },
+    "VIOLET VOID": {
+      "gok": "#361256",
+      "dekor": "yildiz",
+      "grid": [
+        "#0055ff",
+        "#ccff00",
+        "#a020ff"
+      ],
+      "kemer": [
+        "#0055ff",
+        "#ccff00",
+        "#a020ff",
+        "#ff2f8f",
+        "#ffffff"
+      ],
+      "ufuk": "#ccff00",
+      "ara": 2.9,
+      "olcek": 1.18,
+      "bicim": "halka",
+      "en": 0.8,
+      "boy": 1.34,
+      "yer": 3.0
     }
-  }
+  },
+  "_kaynak": "Bazi ortamlar rakip karelerinden OLCULEREK turetildi (docs/kanal-kareleri/). Olculen paletler ve parlaklik profilleri docs/OLCUM-KANAL-KARELERI.md icinde."
 }
