@@ -46,6 +46,8 @@ const MUZIK = path.resolve(arg('muzik', MUZIK_VAR));
 // SwiftShader'in yazilimla rasterlestirmesi (bkz. olc-dongu.js). Kayipsiz
 // webp varsayilan: png ile bit bit ayni, boruda yarisi kadar veri.
 const BICIM = arg('bicim', 'webp');
+// Bolum tanimi (koreografi + ortam dizilisi). Verilmezse motordaki varsayilan.
+const BOLUM = arg('bolum', '');
 const FF_GIRIS = BICIM === 'jpeg' ? 'mjpeg' : BICIM;
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript',
@@ -85,7 +87,8 @@ function sunucuBaslat() {
 
   console.log(`tema: ${TEMA}  bolum: ${BOLUM_OLCU} olcu`);
   await sayfa.goto(
-    `http://127.0.0.1:${port}/03-motor/sahne.html?w=${W}&h=${H}&tema=${TEMA}&toplam=${BOLUM_OLCU}${arg('ek','')}`,
+    `http://127.0.0.1:${port}/03-motor/sahne.html?w=${W}&h=${H}&tema=${TEMA}&toplam=${BOLUM_OLCU}` +
+    (BOLUM ? `&bolum=${encodeURIComponent(BOLUM)}` : '') + arg('ek',''),
                    { waitUntil: 'load', timeout: 120000 });
   await sayfa.waitForFunction('window.HAZIR === true', { timeout: 180000 });
 

@@ -1,0 +1,42 @@
+{
+  "_": "Bolum 3. Ayni motor, ayni kutuphane - tamamen farkli diziliş. Bolum 2 ile karsilastir: ortam sirasi ters, egzersizler baska, dip-tepe yerleri kaymis.",
+
+  "no": 3,
+  "baslik": "DANCE MODE #3 | Interactive Immersive Warm Up | Full Body Cardio",
+  "tema": "b",
+  "toplam_olcu": 264,
+  "muzik": "01-muzik/tam-bolum-264-120bpm.wav",
+
+  "mekanik": "dodge",
+  "_mekanik": "Bu bolumun yeni tipi: yana kacis. Ogretme bolumunde tanitiliyor.",
+
+  "ortamlar": ["FROST", "PLASMA", "NEON CITY", "CIRCUIT", "DEEP SPACE", "ULTRA"],
+  "ortam_olcu": [0, 40, 84, 128, 176, 224],
+
+  "iskelet": [
+    [0,   4,   "bos",  "nefes"],
+    [4,   14,  "d15",  "side-to-side"],
+    [14,  22,  "d20",  "duck"],
+    [22,  32,  "d25",  "shimmy"],
+
+    [32,  48,  "d25",  "raise-roof"],
+    [48,  64,  "d20",  "arm-wave"],
+    [64,  80,  "d25",  "jacks"],
+    [80,  88,  "mola", "neck-roll"],
+
+    [88,  104, "d30",  "kick-step"],
+    [104, 120, "d25",  "jump-standing"],
+    [120, 136, "d30",  "charleston"],
+    [136, 144, "mola", "arm-stretch"],
+
+    [144, 160, "d35",  "twist-dance"],
+    [160, 176, "d30",  "punch"],
+    [176, 192, "d35",  "running-man"],
+    [192, 200, "mola", "neck-roll"],
+
+    [200, 216, "d40",  "jacks"],
+    [216, 232, "d35",  "shimmy"],
+    [232, 248, "d40",  "kick-step"],
+    [248, 264, "d40",  "punch"]
+  ]
+}

@@ -10,9 +10,10 @@ const MIME={'.html':'text/html','.js':'text/javascript','.json':'application/jso
   await new Promise(r=>s.listen(0,'127.0.0.1',r));
   const b=await puppeteer.launch({executablePath:CHROME,headless:'new',
     args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox']});
+  const BOL=process.argv[2]?`&bolum=${encodeURIComponent(process.argv[2])}`:'';
   const pg=await b.newPage(); await pg.setViewport({width:640,height:360});
   pg.on('pageerror',e=>console.log('HATA:',e.message));
-  await pg.goto(`http://127.0.0.1:${s.address().port}/03-motor/sahne.html?w=640&h=360&tema=b&toplam=264`,{waitUntil:'load',timeout:240000});
+  await pg.goto(`http://127.0.0.1:${s.address().port}/03-motor/sahne.html?w=640&h=360&tema=b&toplam=264${BOL}`,{waitUntil:'load',timeout:240000});
   await pg.waitForFunction('window.HAZIR===true',{timeout:300000});
   const r=await pg.evaluate(()=>{
     const N=window.__T.NOTALAR, OL=2.0, TOP=264;

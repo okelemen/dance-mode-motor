@@ -1,0 +1,454 @@
+{
+  "_": "Ortam kutuphanesi. Bolum dosyalari buradan ADA gore secim yapar. Yeni ortam eklemek icin kodu acmaya gerek yok - buraya bir kayit eklemek yeter.",
+  "_alanlar": {
+    "gok": "arka plan rengi",
+    "dekor": "yan duvar tipi: sehir | yildiz | devre | sutun | kristal | ray | yok",
+    "bicim": "koridor geometrisi: kemer | tonoz | halka | elmas | altigen | ikiz | keskin",
+    "grid": "zemin cizgi renkleri (3)",
+    "kemer": "koridor renk dizisi (5)",
+    "ara": "kemerler arasi mesafe",
+    "olcek": "kemer olcegi",
+    "en": "koridor genisligi",
+    "boy": "koridor yuksekligi",
+    "yer": "koridor merkez yuksekligi"
+  },
+  "ortamlar": {
+    "NEON CITY": {
+      "gok": "#0d0524",
+      "dekor": "sehir",
+      "grid": [
+        "#22e0e8",
+        "#8b3cff",
+        "#ff2f8f"
+      ],
+      "kemer": [
+        "#22e0e8",
+        "#7a3cff",
+        "#ff2f8f",
+        "#5ce1ff",
+        "#b04dff"
+      ],
+      "ufuk": "#ff2f8f",
+      "ara": 2.4,
+      "olcek": 1.0,
+      "bicim": "kemer",
+      "en": 1.0,
+      "boy": 1.15,
+      "yer": 4.6
+    },
+    "DEEP SPACE": {
+      "gok": "#0a0426",
+      "dekor": "yildiz",
+      "grid": [
+        "#3ad1ff",
+        "#b04dff",
+        "#ff5ec4"
+      ],
+      "kemer": [
+        "#3ad1ff",
+        "#b04dff",
+        "#ff5ec4",
+        "#6a3cff",
+        "#22e0e8"
+      ],
+      "ufuk": "#b04dff",
+      "ara": 1.8,
+      "olcek": 0.86,
+      "bicim": "tonoz",
+      "en": 0.86,
+      "boy": 1.3,
+      "yer": 4.9
+    },
+    "CIRCUIT": {
+      "gok": "#08082a",
+      "dekor": "devre",
+      "grid": [
+        "#00ffc8",
+        "#6a3cff",
+        "#ff2f6d"
+      ],
+      "kemer": [
+        "#00ffc8",
+        "#6a3cff",
+        "#ff2f6d",
+        "#22e0e8",
+        "#a020ff"
+      ],
+      "ufuk": "#00ffc8",
+      "ara": 3.0,
+      "olcek": 1.2,
+      "bicim": "halka",
+      "en": 0.78,
+      "boy": 1.34,
+      "yer": 2.9
+    },
+    "ULTRA": {
+      "gok": "#160530",
+      "dekor": "yok",
+      "grid": [
+        "#00e5ff",
+        "#a020ff",
+        "#ff008c"
+      ],
+      "kemer": [
+        "#00e5ff",
+        "#a020ff",
+        "#ff008c",
+        "#5ce1ff",
+        "#ff5ec4"
+      ],
+      "ufuk": "#ff008c",
+      "ara": 1.6,
+      "olcek": 0.94,
+      "bicim": "elmas",
+      "en": 0.94,
+      "boy": 1.2,
+      "yer": 3.6
+    },
+    "PLASMA": {
+      "gok": "#12042a",
+      "dekor": "sutun",
+      "grid": [
+        "#ff2f8f",
+        "#ff6a3d",
+        "#a020ff"
+      ],
+      "kemer": [
+        "#ff2f8f",
+        "#ff6a3d",
+        "#a020ff",
+        "#ffb454",
+        "#ff5ec4"
+      ],
+      "ufuk": "#ff6a3d",
+      "ara": 2.0,
+      "olcek": 1.08,
+      "bicim": "kemer",
+      "en": 1.06,
+      "boy": 1.1,
+      "yer": 4.2
+    },
+    "FROST": {
+      "gok": "#061024",
+      "dekor": "kristal",
+      "grid": [
+        "#22e0e8",
+        "#7ee8ff",
+        "#4c5cff"
+      ],
+      "kemer": [
+        "#22e0e8",
+        "#7ee8ff",
+        "#4c5cff",
+        "#ffffff",
+        "#8b3cff"
+      ],
+      "ufuk": "#7ee8ff",
+      "ara": 2.8,
+      "olcek": 0.9,
+      "bicim": "halka",
+      "en": 0.82,
+      "boy": 1.28,
+      "yer": 3.2
+    },
+    "VOLTAGE": {
+      "gok": "#0a0c1e",
+      "dekor": "devre",
+      "grid": [
+        "#c8ff2f",
+        "#22e0e8",
+        "#3a4cff"
+      ],
+      "kemer": [
+        "#c8ff2f",
+        "#22e0e8",
+        "#3a4cff",
+        "#a020ff",
+        "#ffffff"
+      ],
+      "ufuk": "#c8ff2f",
+      "ara": 2.2,
+      "olcek": 1.04,
+      "bicim": "altigen",
+      "en": 0.92,
+      "boy": 1.22,
+      "yer": 4.0
+    },
+    "MIDNIGHT": {
+      "gok": "#050a1c",
+      "dekor": "sehir",
+      "grid": [
+        "#4c7cff",
+        "#ffb454",
+        "#8b3cff"
+      ],
+      "kemer": [
+        "#4c7cff",
+        "#ffb454",
+        "#8b3cff",
+        "#ffffff",
+        "#22e0e8"
+      ],
+      "ufuk": "#ffb454",
+      "ara": 1.9,
+      "olcek": 0.9,
+      "bicim": "tonoz",
+      "en": 0.88,
+      "boy": 1.28,
+      "yer": 4.8
+    },
+    "VAPOR": {
+      "gok": "#160424",
+      "dekor": "sutun",
+      "grid": [
+        "#ff2f8f",
+        "#ff9a3d",
+        "#a020ff"
+      ],
+      "kemer": [
+        "#ff2f8f",
+        "#ff9a3d",
+        "#a020ff",
+        "#ffd23f",
+        "#7a3cff"
+      ],
+      "ufuk": "#ff9a3d",
+      "ara": 2.9,
+      "olcek": 1.16,
+      "bicim": "halka",
+      "en": 0.8,
+      "boy": 1.32,
+      "yer": 3.0
+    },
+    "GLACIER": {
+      "gok": "#04101f",
+      "dekor": "kristal",
+      "grid": [
+        "#7ee8ff",
+        "#ffffff",
+        "#3a5cff"
+      ],
+      "kemer": [
+        "#7ee8ff",
+        "#ffffff",
+        "#3a5cff",
+        "#22e0e8",
+        "#b04dff"
+      ],
+      "ufuk": "#7ee8ff",
+      "ara": 1.7,
+      "olcek": 0.92,
+      "bicim": "keskin",
+      "en": 0.96,
+      "boy": 1.16,
+      "yer": 3.8
+    },
+    "NEBULA": {
+      "gok": "#0c0430",
+      "dekor": "yildiz",
+      "grid": [
+        "#b04dff",
+        "#ff5ec4",
+        "#22e0e8"
+      ],
+      "kemer": [
+        "#b04dff",
+        "#ff5ec4",
+        "#22e0e8",
+        "#6a3cff",
+        "#ffffff"
+      ],
+      "ufuk": "#b04dff",
+      "ara": 3.1,
+      "olcek": 1.22,
+      "bicim": "halka",
+      "en": 0.76,
+      "boy": 1.36,
+      "yer": 2.8
+    },
+    "GRID ZERO": {
+      "gok": "#000008",
+      "dekor": "yok",
+      "grid": [
+        "#00e5ff",
+        "#ff008c",
+        "#ffffff"
+      ],
+      "kemer": [
+        "#00e5ff",
+        "#ff008c",
+        "#ffffff",
+        "#00e5ff",
+        "#ff008c"
+      ],
+      "ufuk": "#00e5ff",
+      "ara": 1.5,
+      "olcek": 0.88,
+      "bicim": "keskin",
+      "en": 1.0,
+      "boy": 1.12,
+      "yer": 4.4
+    },
+    "TOXIC": {
+      "gok": "#06140c",
+      "dekor": "devre",
+      "grid": [
+        "#4dff88",
+        "#a020ff",
+        "#c8ff2f"
+      ],
+      "kemer": [
+        "#4dff88",
+        "#a020ff",
+        "#c8ff2f",
+        "#22e0e8",
+        "#ffffff"
+      ],
+      "ufuk": "#4dff88",
+      "ara": 2.6,
+      "olcek": 1.1,
+      "bicim": "ikiz",
+      "en": 0.84,
+      "boy": 1.26,
+      "yer": 3.4
+    },
+    "SOLARIS": {
+      "gok": "#1a0616",
+      "dekor": "sutun",
+      "grid": [
+        "#ff6a3d",
+        "#ffd23f",
+        "#a020ff"
+      ],
+      "kemer": [
+        "#ff6a3d",
+        "#ffd23f",
+        "#a020ff",
+        "#ff2f8f",
+        "#ffffff"
+      ],
+      "ufuk": "#ffd23f",
+      "ara": 2.1,
+      "olcek": 1.02,
+      "bicim": "kemer",
+      "en": 1.02,
+      "boy": 1.1,
+      "yer": 4.5
+    },
+    "DEEP DIVE": {
+      "gok": "#02141c",
+      "dekor": "yildiz",
+      "grid": [
+        "#22e0e8",
+        "#3a5cff",
+        "#7ee8ff"
+      ],
+      "kemer": [
+        "#22e0e8",
+        "#3a5cff",
+        "#7ee8ff",
+        "#ffffff",
+        "#b04dff"
+      ],
+      "ufuk": "#22e0e8",
+      "ara": 2.0,
+      "olcek": 0.94,
+      "bicim": "tonoz",
+      "en": 0.86,
+      "boy": 1.3,
+      "yer": 4.7
+    },
+    "CRIMSON": {
+      "gok": "#12030c",
+      "dekor": "yok",
+      "grid": [
+        "#ff2038",
+        "#ff2f8f",
+        "#a020ff"
+      ],
+      "kemer": [
+        "#ff2038",
+        "#ff2f8f",
+        "#a020ff",
+        "#ffb454",
+        "#ffffff"
+      ],
+      "ufuk": "#ff2038",
+      "ara": 1.6,
+      "olcek": 0.96,
+      "bicim": "elmas",
+      "en": 0.94,
+      "boy": 1.18,
+      "yer": 3.6
+    },
+    "AURORA": {
+      "gok": "#04121a",
+      "dekor": "kristal",
+      "grid": [
+        "#4dffc8",
+        "#b04dff",
+        "#ffffff"
+      ],
+      "kemer": [
+        "#4dffc8",
+        "#b04dff",
+        "#ffffff",
+        "#22e0e8",
+        "#ff5ec4"
+      ],
+      "ufuk": "#4dffc8",
+      "ara": 2.7,
+      "olcek": 1.12,
+      "bicim": "ikiz",
+      "en": 0.82,
+      "boy": 1.28,
+      "yer": 3.2
+    },
+    "TERMINAL": {
+      "gok": "#080a06",
+      "dekor": "devre",
+      "grid": [
+        "#4dff88",
+        "#ffb454",
+        "#22e0e8"
+      ],
+      "kemer": [
+        "#4dff88",
+        "#ffb454",
+        "#22e0e8",
+        "#ffffff",
+        "#a020ff"
+      ],
+      "ufuk": "#4dff88",
+      "ara": 1.8,
+      "olcek": 0.9,
+      "bicim": "keskin",
+      "en": 0.98,
+      "boy": 1.14,
+      "yer": 4.2
+    },
+    "RAIL YARD": {
+      "gok": "#07080e",
+      "dekor": "ray",
+      "grid": [
+        "#ffb454",
+        "#22e0e8",
+        "#ff2f8f"
+      ],
+      "kemer": [
+        "#ffb454",
+        "#ffffff",
+        "#22e0e8",
+        "#ff2f8f",
+        "#8b3cff"
+      ],
+      "ufuk": "#ffb454",
+      "ara": 1.7,
+      "olcek": 0.88,
+      "bicim": "tonoz",
+      "en": 0.84,
+      "boy": 1.24,
+      "yer": 4.4
+    }
+  }
+}

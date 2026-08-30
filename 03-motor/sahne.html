@@ -32,6 +32,15 @@ const SADE = SP.get('sade') === '1';   // karsilastirma icin: dolgu katmanlari k
 const BLOOM_ACIK = SP.get('bloom') !== '0';
 const PAS_ACIK   = SP.get('pas')   !== '0';
 
+// ------------------------------------------------------------ BOLUM DOSYASI
+// Koreografi KODDA DEGIL VERIDE. Her bolum kendi JSON'u; motor degismiyor.
+// Bu olmadan her bolum birebir ayni videoyu uretiyordu - planin "en kritik
+// risk" dedigi tekrar problemi tam olarak buydu.
+// Verilmezse dosyadaki varsayilan iskelet kullanilir (hizli testler icin).
+const BOLUM = SP.get('bolum')
+  ? await fetch('/' + SP.get('bolum')).then(r => r.json())
+  : null;
+
 // ---------------------------------------------------------------- TEMA
 // Iki gorsel dil, tek motor. Rakip analizinin bulduguu iki nis
 // (bkz. docs/RAKIP-ANALIZI-6-KANAL.md):
@@ -129,9 +138,9 @@ const ISKELET_TAM = [
 // Kac olculuk bolum render edilecek. Parca render'da bu HER ZAMAN tam
 // bolumun uzunlugu olmali (parcanin degil) - final karti ve ortam
 // gecisleri mutlak zamandan hesaplaniyor.
-const TOPLAM_OLCU = Number(SP.get('toplam') || 64);
+const TOPLAM_OLCU = (BOLUM && BOLUM.toplam_olcu) || Number(SP.get('toplam') || 64);
 const TAM_BOLUM   = TOPLAM_OLCU >= 200;
-const BLOKLAR     = TAM_BOLUM ? ISKELET_TAM : ISKELET_DEMO;
+const BLOKLAR     = (BOLUM && BOLUM.iskelet) || (TAM_BOLUM ? ISKELET_TAM : ISKELET_DEMO);
 
 // ---------------------------------------------------------------- ORTAMLAR
 // Bolum icinde ortam degisir: palet + kemer renkleri + LEVEL etiketi.
@@ -157,47 +166,31 @@ const ORTAMLAR_A = [
 // B temasi: dort "dunya". Hicbiri lisansli bir evrene ait degil - tema ismi
 // aramayi cekiyor ama IP kullanmadan da tema yapilabiliyor. Rakip analizinin
 // en onemli cikarimlarindan biri buydu.
-const ORTAMLAR_B = [
-  { olcu: 0,  seviye: 1, gok: '#0d0524', ad: 'NEON CITY', dekor: 'sehir',
-    grid: ['#22e0e8','#8b3cff','#ff2f8f'],
-    kemer:['#22e0e8','#7a3cff','#ff2f8f','#5ce1ff','#b04dff'],
-    ufuk: '#ff2f8f', ara: 2.4, olcek: 1.00, bicim: 'kemer',
-    en: 1.00, boy: 1.15, yer: 4.6 },
-  { olcu: 16, seviye: 2, gok: '#0a0426', ad: 'DEEP SPACE', dekor: 'yildiz',
-    grid: ['#3ad1ff','#b04dff','#ff5ec4'],
-    kemer:['#3ad1ff','#b04dff','#ff5ec4','#6a3cff','#22e0e8'],
-    ufuk: '#b04dff', ara: 1.8, olcek: 0.86, bicim: 'tonoz',
-    en: 0.86, boy: 1.30, yer: 4.9 },
-  { olcu: 32, seviye: 3, gok: '#08082a', ad: 'CIRCUIT', dekor: 'devre',
-    grid: ['#00ffc8','#6a3cff','#ff2f6d'],
-    kemer:['#00ffc8','#6a3cff','#ff2f6d','#22e0e8','#a020ff'],
-    ufuk: '#00ffc8', ara: 3.0, olcek: 1.20, bicim: 'halka',
-    en: 0.78, boy: 1.34, yer: 2.9 },
-  { olcu: 48, seviye: 4, gok: '#160530', ad: 'ULTRA', dekor: 'yok',
-    grid: ['#00e5ff','#a020ff','#ff008c'],
-    kemer:['#00e5ff','#a020ff','#ff008c','#5ce1ff','#ff5ec4'],
-    ufuk: '#ff008c', ara: 1.6, olcek: 0.94, bicim: 'elmas',
-    en: 0.94, boy: 1.20, yer: 3.6 },
-  { olcu: 64, seviye: 5, gok: '#12042a', ad: 'PLASMA', dekor: 'sutun',
-    grid: ['#ff2f8f','#ff6a3d','#a020ff'],
-    kemer:['#ff2f8f','#ff6a3d','#a020ff','#ffb454','#ff5ec4'],
-    ufuk: '#ff6a3d', ara: 2.0, olcek: 1.08, bicim: 'kemer',
-    en: 1.06, boy: 1.10, yer: 4.2 },
-  { olcu: 80, seviye: 6, gok: '#061024', ad: 'FROST', dekor: 'kristal',
-    grid: ['#22e0e8','#7ee8ff','#4c5cff'],
-    kemer:['#22e0e8','#7ee8ff','#4c5cff','#ffffff','#8b3cff'],
-    ufuk: '#7ee8ff', ara: 2.8, olcek: 0.90, bicim: 'halka',
-    en: 0.82, boy: 1.28, yer: 3.2 },
-];
+// Ortam kutuphanesi JSON'dan geliyor: spec/ortamlar.json
+// Yeni ortam eklemek icin bu dosyayi acmaya gerek yok. Bolum dosyalari
+// kutuphaneden ADA gore secim yapiyor, boylece her bolum farkli mekanlarda
+// geciyor - tekrar problemine karsi asil savunma bu.
+const ORTAM_JSON = await fetch('/spec/ortamlar.json').then(r => r.json());
+const ORTAMLAR_B = Object.entries(ORTAM_JSON.ortamlar)
+  .map(([ad, o]) => ({ ad, ...o }));
 // Ortam degisimi YAPISAL sinirda olmali: her yeni tur yeni bir mekanda
 // basliyor, boylece "LEVEL UP" karti molanin hemen ardindan geliyor ve
 // izleyici dinlenmeden sonra yeni bir yere ciktigini hissediyor.
 // Rakip olcumu: gorsel durum medyan 19 saniyede bir degisiyor. Bizde dort
 // ortam 88 olcude bir degisiyordu (~162 sn). Alti ortam, 44 olculuk aralik:
 // ~81 saniye. Aradaki bosluk kemer renk akisiyla dolduruluyor.
-const ORTAM_OLCU = TAM_BOLUM ? [0, 44, 88, 132, 176, 220] : [0, 12, 22, 34, 44, 54];
-const ORTAMLAR = (TB ? ORTAMLAR_B : ORTAMLAR_A)
-  .map((o, i) => ({ ...o, olcu: ORTAM_OLCU[i] }));
+// Ortam kutuphanesi: ada gore secilebilir. Bolum dosyasi hangi ortamlari
+// hangi sirayla kullanacagini soyluyor - ayni kutuphaneden farkli diziler.
+const ORTAM_KUT = {};
+for (const o of ORTAMLAR_B) ORTAM_KUT[o.ad] = o;
+
+const ORTAM_SECIM = (BOLUM && BOLUM.ortamlar)
+  ? BOLUM.ortamlar.map(ad => ORTAM_KUT[ad]).filter(Boolean)
+  : (TB ? ORTAMLAR_B : ORTAMLAR_A);
+const ORTAM_OLCU = (BOLUM && BOLUM.ortam_olcu)
+  || (TAM_BOLUM ? [0, 44, 88, 132, 176, 220] : [0, 12, 22, 34, 44, 54]);
+const ORTAMLAR = ORTAM_SECIM.map((o, i) => ({
+  ...o, olcu: ORTAM_OLCU[i], seviye: i + 1 }));
 // Renk gecisi KISA olmali. 1 olcuye yayilinca fark edilmiyordu; yarim
 // olcude bitince "bir sey degisti" hissi net veriyor.
 const GECIS_OLCU = 0.4;
@@ -225,7 +218,7 @@ const CUE = {
 //
 // Kesirli yogunluk tek kalipla olmaz. Her kademe bir kalip SETI; olculer
 // set boyunca sirayla donuyor, ortalama kesirli cikiyor.
-const P = {
+const P_VAR = {
   s2a: ['step_L', null,      'step_R', null   ],   // 2
   s2b: ['jump',   null,      'duck',   null   ],   // 2
   s3a: ['step_L', 'jump',    'step_R', null   ],   // 3
@@ -241,7 +234,7 @@ const P = {
   m0:  [null,      null, null,     null],
   bos: [null,      null, null,     null],
 };
-const YOGUNLUK = {
+const YOGUNLUK_VAR = {
   bos:  ['bos'],
   d15:  ['s2a', 'm0'],                 // 1,5 - ogretme baslangici
   d20:  ['s2a', 's2b'],                // 2,0 - tur 1
@@ -255,6 +248,12 @@ const YOGUNLUK = {
 // ---------------------------------------------------------- CUE URETECI
 // AYNALAMA: her 8 olculuk cumlede sol/sag takas. Vucut dengeli calissin.
 // Rakipler bunu sistematik yapmiyor; bir egzersiz videosunda yapilmali.
+// Kaliplar ve kademeler de bolum dosyasindan gelebilir. Boylece bir bolum
+// "sadece 4 hareket kullan" gibi bir kisit koyabiliyor - motor degismeden.
+const P = (BOLUM && BOLUM.kaliplar) ? { ...P_VAR, ...BOLUM.kaliplar } : P_VAR;
+const YOGUNLUK = (BOLUM && BOLUM.kademeler)
+  ? { ...YOGUNLUK_VAR, ...BOLUM.kademeler } : YOGUNLUK_VAR;
+
 const AYNA = { step_L:'step_R', step_R:'step_L',
                dodge_L:'dodge_R', dodge_R:'dodge_L',
                reach_L:'reach_R', reach_R:'reach_L' };
@@ -655,6 +654,45 @@ if (TB && !SADE) {
         g.fillStyle = gr; g.fillRect(x, 512-h, w, h);
       }
     }
+    else if (tip === 'ray') {
+      // METRO TUNELI: beton panel duvar, kablo demeti, aralikli servis
+      // lambalari ve seyrek graffiti lekesi. Referansta bu dekorun isi
+      // koridoru KAPATMAK - acik gokyuzu yok, dar ve bogucu olmali.
+      g.fillStyle = '#0a0a10'; g.fillRect(0, 0, 512, 512);
+      // beton panel derzleri
+      g.strokeStyle = 'rgba(120,130,160,0.16)'; g.lineWidth = 2;
+      for (let y = 0; y < 512; y += 64) {
+        g.beginPath(); g.moveTo(0, y); g.lineTo(512, y); g.stroke();
+      }
+      for (let x = 0; x < 512; x += 128) {
+        g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 512); g.stroke();
+      }
+      // kablo demeti - duvar boyunca yatay
+      for (let i = 0; i < 4; i++) {
+        const y = 150 + i * 13 + kar(i) * 6;
+        g.strokeStyle = `rgba(${60 + i * 20},${70 + i * 15},110,0.5)`;
+        g.lineWidth = 3 + (i % 2);
+        g.beginPath(); g.moveTo(0, y); g.lineTo(512, y + (kar(i + 9) - 0.5) * 10); g.stroke();
+      }
+      // servis lambalari
+      for (let i = 0; i < 5; i++) {
+        const x = 40 + i * 104, y = 96;
+        const gr = g.createRadialGradient(x, y, 0, x, y, 54);
+        gr.addColorStop(0, 'rgba(255,214,140,0.85)');
+        gr.addColorStop(1, 'rgba(255,180,90,0)');
+        g.fillStyle = gr; g.fillRect(x - 54, y - 54, 108, 108);
+        g.fillStyle = 'rgba(255,236,190,0.95)';
+        g.fillRect(x - 9, y - 4, 18, 8);
+      }
+      // graffiti lekeleri - seyrek renk vurusu
+      for (let i = 0; i < 3; i++) {
+        const x = kar(i + 3) * 430, y = 250 + kar(i + 7) * 180;
+        g.fillStyle = `rgba(${[255,90,255][i % 3]},${[60,220,90][i % 3]},${[140,255,60][i % 3]},0.28)`;
+        g.beginPath();
+        g.ellipse(x, y, 34 + kar(i) * 40, 16 + kar(i + 1) * 18, kar(i) * 3, 0, 6.2832);
+        g.fill();
+      }
+    }
     else if (tip === 'kristal') {
       // buz: acili kirilmis parcalar
       for (let i = 0; i < 22; i++) {
@@ -707,7 +745,7 @@ if (TB && !SADE) {
   }
   // her dekor tipi icin 14 doku onceden uretiliyor - kare basina uretim yok
   window.__DEKOR = {};
-  for (const tip of ['sehir','yildiz','devre','sutun','kristal'])
+  for (const tip of ['sehir','yildiz','devre','sutun','kristal','ray'])
     window.__DEKOR[tip] = Array.from({length:14}, (_,i) => dekorDoku(tip, i));
   const DEKOR_DOKULARI = window.__DEKOR;
   const BINA_ARA = 26, BINA_SAY = 7;

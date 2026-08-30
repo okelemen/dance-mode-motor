@@ -11,6 +11,7 @@ const arg=(a,d)=>{const i=process.argv.indexOf('--'+a);return i>-1?process.argv[
   const N=+arg('n',416), SADE=arg('sade','0'), W=+arg('w',1280), H=+arg('h',720);
   const TEMA=arg('tema','a')==='b'?'b':'a';
   const TOPLAM=+arg('toplam',64);
+  const BOLUM=arg('bolum','');
   const CIKTI=path.resolve(arg('cikti','../04-ciktilar/kare.png'));
 
   const s=http.createServer((q,r)=>{
@@ -26,7 +27,7 @@ const arg=(a,d)=>{const i=process.argv.indexOf('--'+a);return i>-1?process.argv[
   const pg=await b.newPage();
   await pg.setViewport({width:W,height:H});
   pg.on('pageerror',e=>console.log('HATA:',e.message));
-  await pg.goto(`http://127.0.0.1:${s.address().port}/03-motor/sahne.html?w=${W}&h=${H}&sade=${SADE}&tema=${TEMA}&toplam=${TOPLAM}`,
+  await pg.goto(`http://127.0.0.1:${s.address().port}/03-motor/sahne.html?w=${W}&h=${H}&sade=${SADE}&tema=${TEMA}&toplam=${TOPLAM}`+(BOLUM?`&bolum=${encodeURIComponent(BOLUM)}`:''),
                 {waitUntil:'load',timeout:120000});
   await pg.waitForFunction('window.HAZIR===true',{timeout:180000});
   const veri=await pg.evaluate(n=>{window.kareKur(n);return window.kareAl();},N);
