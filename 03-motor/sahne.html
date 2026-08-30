@@ -1,0 +1,1966 @@
+<meta charset="utf-8">
+<title>Dance Mode - sahne</title>
+<style>
+  html,body { margin:0; background:#000; overflow:hidden; }
+  canvas { display:block; }
+</style>
+<canvas id="cikti"></canvas>
+
+<script type="importmap">
+{ "imports": {
+    "three": "/03-motor/node_modules/three/build/three.module.js",
+    "three/addons/": "/03-motor/node_modules/three/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+// ---------------------------------------------------------------- SABITLER
+const S = await fetch('/spec/sabitler.json').then(r => r.json());
+const FPS   = S.video.fps;                 // 30
+const OLCU  = S.izgara.saniye_per_olcu;    // 2.0 sn
+const VURUS = S.izgara.saniye_per_vurus;   // 0.5 sn
+const YAKLASMA = S.oynanis.yaklasma_saniye;// 2.0 sn
+
+const SP = new URLSearchParams(location.search);
+const W = Number(SP.get('w') || 1280);
+const H = Number(SP.get('h') || 720);
+const SADE = SP.get('sade') === '1';   // karsilastirma icin: dolgu katmanlari kapali
+// hiz olcumu icin katman anahtarlari
+const BLOOM_ACIK = SP.get('bloom') !== '0';
+const PAS_ACIK   = SP.get('pas')   !== '0';
+
+// ---------------------------------------------------------------- TEMA
+// Iki gorsel dil, tek motor. Rakip analizinin bulduguu iki nis
+// (bkz. docs/RAKIP-ANALIZI-6-KANAL.md):
+//   'a' = soyut ritim seridi - koyu zemin, neon, additive parlama
+//   'b' = temali kosu        - gunduz, doygun blok dunyasi, normal harman
+//
+// B'de additive harman KULLANILAMAZ. Toplama isik parlak zeminde beyaza
+// doyar ve butun sahne yikanir. Bu yuzden harman modu temayla secilir ve
+// B'de kontrast parlaklikla degil RENK ALANI + KOYU KONTUR ile kurulur.
+const TEMA = SP.get('tema') === 'b' ? 'b' : 'a';
+const TB   = TEMA === 'b';
+// Isik ogeleri (kemer, parcacik, ufuk, halka) koyu zeminde additive olmali -
+// neon parlamasi toplama isikla olusur.
+const HARMAN = THREE.AdditiveBlending;
+// Notalar istisna: referansta nota PARLAMIYOR, duz renkli fayans olarak
+// duruyor ve uzerinde koyu simge var. Additive olsa zeminle karisirdi.
+const HARMAN_NOTA = TB ? THREE.NormalBlending : THREE.AdditiveBlending;
+const YAZI_KONTUR = 'rgba(255,255,255,0.92)';
+
+const Z_VURUS = 4;      // vurus cizgisi
+const Z_DOGUM = -26;    // notanin dogdugu yer (30 birim / 2 sn)
+const LANE_X  = [-2.2, 0, 2.2];
+const SIS_YAKIN = TB ? 20 : 14, SIS_UZAK = TB ? 78 : 33;
+
+const PALET = TB ? {
+  zemin:'#0d0524', grid:'#ff2f8f',
+  lane:['#22e0e8','#ff2f8f','#8b3cff'],
+  cizgi:'#ffffff', siluet:'#000000', rim:'#22e0e8', hud:'#ffffff'
+} : {
+  zemin:'#0a0118', grid:'#ff2fd0',
+  lane:['#00e5ff','#b14aff','#ffe600'],
+  cizgi:'#ffffff', siluet:'#000000', rim:'#00e5ff', hud:'#ffffff'
+};
+
+// ------------------------------------------------------------- KOREOGRAFI
+// Kalip ve kademe tanimlari asagida (P / KADEME) - CUE tablosunun yaninda.
+// Burada sadece ISKELET var: hangi olcu araliginda hangi kademe.
+//
+// Siluet artik her cue'da klip degistirmiyor. Evde takip eden biri icin
+// siluet bir EGITMEN: blok boyunca TEK bir egzersizi tekrarliyor. Vuruslara
+// gore ziplayan bir figur takip edilemez, cirpinma gibi gorunur.
+// 64 olculuk DEMO iskeleti: tirmanisi ve dort ortami hizlica gormek icin.
+const ISKELET_DEMO = [
+  [0,  2,  'bos',  'nefes'        ],
+  [2,  6,  'd15',  'adim'         ],
+  [6,  16, 'd20',  'side-to-side' ],
+  [16, 18, 'mola', 'nefes'        ],
+  [18, 32, 'd25',  'jacks'        ],
+  [32, 34, 'mola', 'nefes'        ],
+  [34, 48, 'd30',  'duck'         ],
+  [48, 50, 'mola', 'nefes'        ],
+  [50, 60, 'd35',  'punch'        ],
+  [60, 64, 'd40',  'jacks'        ],
+];
+
+// 264 olculuk TAM BOLUM iskeleti - DANCE-MODE-PLANI.md'deki yapinin birebir
+// karsiligi: ogretme 32, uc tur 48'er, aralarinda 8'er olcu mola, final 64.
+//
+// Turlar 16'sarlik uc bloga bolundu. Zorluk kademesi tur boyunca AYNI kaliyor
+// (kademe2/3/4/5), degisen sey SILUETIN EGZERSIZI. Sebep: 48 olcu = 1:36 ve
+// evde takip eden biri ayni hareketi bir bucuk dakika yapamaz; ama cue
+// yogunlugunu blok icinde degistirmek de ogrenilen tempoyu bozar.
+// Yani ritim sabit, egzersiz degisiyor.
+// [baslangic, bitis, yogunluk_kademesi, siluet_egzersizi]
+// Zorluk GERCEKTEN tirmaniyor: 2,0 -> 2,5 -> 3,0 -> 3,5 -> 4,0.
+// Siluet egzersizi her 16 olcude degisiyor - 48 olcu (1:36) boyunca ayni
+// hareketi yapmak evde takip eden biri icin imkansiz.
+const ISKELET_TAM = [
+  [0,   4,   'bos',  'nefes'        ],  // giris: READY / GO
+  [4,   12,  'd15',  'adim'         ],  // OGRETME - yana adim
+  [12,  20,  'd20',  'jump'         ],  //   ziplama / comelme
+  [20,  32,  'd20',  'jacks'        ],  //   karma
+
+  [32,  48,  'd20',  'adim'         ],  // TUR 1 - ortalama 2,0
+  [48,  64,  'd15',  'side-to-side' ],  //   dip
+  [64,  80,  'd25',  'adim'         ],  //   tepe
+  [80,  88,  'mola', 'arm-stretch'  ],  // AKTIF MOLA
+
+  [88,  104, 'd25',  'jacks'        ],  // TUR 2 - ortalama 2,5
+  [104, 120, 'd20',  'charleston'   ],  //   dip
+  [120, 136, 'd30',  'jacks'        ],  //   tepe
+  [136, 144, 'mola', 'neck-roll'    ],  // AKTIF MOLA
+
+  [144, 160, 'd30',  'duck'         ],  // TUR 3 - ortalama 3,0
+  [160, 176, 'd25',  'kick-step'    ],  //   dip
+  [176, 192, 'd35',  'twist-dance'  ],  //   tepe
+  [192, 200, 'mola', 'arm-stretch'  ],  // AKTIF MOLA
+
+  [200, 216, 'd35',  'punch'        ],  // FINAL - ortalama 3,5
+  [216, 232, 'd30',  'running-man'  ],  //   dip
+  [232, 248, 'd40',  'punch'        ],  //   tepe
+  [248, 264, 'd40',  'jacks'        ],  // son 16 - 4,0, combo kapak rakamina
+];
+
+// Kac olculuk bolum render edilecek. Parca render'da bu HER ZAMAN tam
+// bolumun uzunlugu olmali (parcanin degil) - final karti ve ortam
+// gecisleri mutlak zamandan hesaplaniyor.
+const TOPLAM_OLCU = Number(SP.get('toplam') || 64);
+const TAM_BOLUM   = TOPLAM_OLCU >= 200;
+const BLOKLAR     = TAM_BOLUM ? ISKELET_TAM : ISKELET_DEMO;
+
+// ---------------------------------------------------------------- ORTAMLAR
+// Bolum icinde ortam degisir: palet + kemer renkleri + LEVEL etiketi.
+// "NEW LEVEL" bir sozdur; gorsel olarak karsilanmazsa izleyici 3. dakikada anlar.
+const ORTAMLAR_A = [
+  { olcu: 0,  seviye: 1, gok: '#0a0118',
+    grid: ['#ff2fd0','#00e5ff','#8b5cff'],
+    kemer:['#00e5ff','#ff2fd0','#8b5cff','#25d9c2','#ffb454'],
+    ufuk: '#ff5ec4', ara: 5.0, olcek: 1.00, bicim: 'yuvarlak', en:1, boy:1, yer:5.3 },
+  { olcu: 16, seviye: 2, gok: '#0a0118',
+    grid: ['#25d9c2','#3d7bff','#ffb454'],
+    kemer:['#ffb454','#25d9c2','#3d7bff','#ffe066','#00e5ff'],
+    ufuk: '#ffb454', ara: 3.4, olcek: 0.86, bicim: 'altigen',  en:1, boy:1, yer:5.3 },
+  { olcu: 32, seviye: 3, gok: '#0a0118',
+    grid: ['#b18cff','#ff6ad5','#5ce1e6'],
+    kemer:['#ff6ad5','#b18cff','#5ce1e6','#ffffff','#8b5cff'],
+    ufuk: '#b18cff', ara: 6.6, olcek: 1.20, bicim: 'ikiz',     en:1, boy:1, yer:5.3 },
+  { olcu: 48, seviye: 4, gok: '#0a0118',
+    grid: ['#ffe066','#ff5ec4','#00e5ff'],
+    kemer:['#ffe066','#ff2fd0','#00e5ff','#ffb454','#ffffff'],
+    ufuk: '#ff2fd0', ara: 2.9, olcek: 0.94, bicim: 'keskin',   en:1, boy:1, yer:5.3 },
+];
+// B temasi: dort "dunya". Hicbiri lisansli bir evrene ait degil - tema ismi
+// aramayi cekiyor ama IP kullanmadan da tema yapilabiliyor. Rakip analizinin
+// en onemli cikarimlarindan biri buydu.
+const ORTAMLAR_B = [
+  { olcu: 0,  seviye: 1, gok: '#0d0524', ad: 'NEON CITY', dekor: 'sehir',
+    grid: ['#22e0e8','#8b3cff','#ff2f8f'],
+    kemer:['#22e0e8','#7a3cff','#ff2f8f','#5ce1ff','#b04dff'],
+    ufuk: '#ff2f8f', ara: 2.4, olcek: 1.00, bicim: 'kemer',
+    en: 1.00, boy: 1.15, yer: 4.6 },
+  { olcu: 16, seviye: 2, gok: '#0a0426', ad: 'DEEP SPACE', dekor: 'yildiz',
+    grid: ['#3ad1ff','#b04dff','#ff5ec4'],
+    kemer:['#3ad1ff','#b04dff','#ff5ec4','#6a3cff','#22e0e8'],
+    ufuk: '#b04dff', ara: 1.8, olcek: 0.86, bicim: 'tonoz',
+    en: 0.86, boy: 1.30, yer: 4.9 },
+  { olcu: 32, seviye: 3, gok: '#08082a', ad: 'CIRCUIT', dekor: 'devre',
+    grid: ['#00ffc8','#6a3cff','#ff2f6d'],
+    kemer:['#00ffc8','#6a3cff','#ff2f6d','#22e0e8','#a020ff'],
+    ufuk: '#00ffc8', ara: 3.0, olcek: 1.20, bicim: 'halka',
+    en: 0.78, boy: 1.34, yer: 2.9 },
+  { olcu: 48, seviye: 4, gok: '#160530', ad: 'ULTRA', dekor: 'yok',
+    grid: ['#00e5ff','#a020ff','#ff008c'],
+    kemer:['#00e5ff','#a020ff','#ff008c','#5ce1ff','#ff5ec4'],
+    ufuk: '#ff008c', ara: 1.6, olcek: 0.94, bicim: 'elmas',
+    en: 0.94, boy: 1.20, yer: 3.6 },
+  { olcu: 64, seviye: 5, gok: '#12042a', ad: 'PLASMA', dekor: 'sutun',
+    grid: ['#ff2f8f','#ff6a3d','#a020ff'],
+    kemer:['#ff2f8f','#ff6a3d','#a020ff','#ffb454','#ff5ec4'],
+    ufuk: '#ff6a3d', ara: 2.0, olcek: 1.08, bicim: 'kemer',
+    en: 1.06, boy: 1.10, yer: 4.2 },
+  { olcu: 80, seviye: 6, gok: '#061024', ad: 'FROST', dekor: 'kristal',
+    grid: ['#22e0e8','#7ee8ff','#4c5cff'],
+    kemer:['#22e0e8','#7ee8ff','#4c5cff','#ffffff','#8b3cff'],
+    ufuk: '#7ee8ff', ara: 2.8, olcek: 0.90, bicim: 'halka',
+    en: 0.82, boy: 1.28, yer: 3.2 },
+];
+// Ortam degisimi YAPISAL sinirda olmali: her yeni tur yeni bir mekanda
+// basliyor, boylece "LEVEL UP" karti molanin hemen ardindan geliyor ve
+// izleyici dinlenmeden sonra yeni bir yere ciktigini hissediyor.
+// Rakip olcumu: gorsel durum medyan 19 saniyede bir degisiyor. Bizde dort
+// ortam 88 olcude bir degisiyordu (~162 sn). Alti ortam, 44 olculuk aralik:
+// ~81 saniye. Aradaki bosluk kemer renk akisiyla dolduruluyor.
+const ORTAM_OLCU = TAM_BOLUM ? [0, 44, 88, 132, 176, 220] : [0, 12, 22, 34, 44, 54];
+const ORTAMLAR = (TB ? ORTAMLAR_B : ORTAMLAR_A)
+  .map((o, i) => ({ ...o, olcu: ORTAM_OLCU[i] }));
+// Renk gecisi KISA olmali. 1 olcuye yayilinca fark edilmiyordu; yarim
+// olcude bitince "bir sey degisti" hissi net veriyor.
+const GECIS_OLCU = 0.4;
+
+const CUE = {
+  step_L:  { lane:0, sure:VURUS*2, klip:'step-left'   },
+  step_R:  { lane:2, sure:VURUS*2, klip:'step-right'  },
+  jump:    { lane:1, sure:OLCU,    klip:'jump'        },
+  duck:    { lane:1, sure:OLCU,    klip:'duck'        },
+  dodge_L: { lane:0, sure:OLCU,    klip:'dodge-right' },
+  dodge_R: { lane:2, sure:OLCU,    klip:'dodge-right' },
+  punch:   { lane:1, sure:OLCU,    klip:'punch'       },
+  arms_up: { lane:1, sure:OLCU,    klip:'arms-up'     },
+  // aktif mola cue'lari: yogunluk duser ama ekran BOSALMAZ
+  reach_L: { lane:0, sure:OLCU,    klip:'arm-stretch' },
+  reach_R: { lane:2, sure:OLCU,    klip:'arm-stretch' },
+  // TUTMA NOTASI: iki vurus boyunca pozda kalinir. Uzun fayans olarak cizilir.
+  hold:    { lane:1, sure:VURUS*4, klip:'raise-roof', uzun: 2 },
+};
+
+// ------------------------------------------------- YOGUNLUK KADEMELERI
+// Rakip olcumu (docs/OLCUM-STAY-ON-BEAT-11.md): ortalama 2,64 cue/olcu ve
+// zorluk 11 dakikada 4,00'ten 4,25'e cikiyor - yani DUZ. Bizim farkimiz
+// gercek bir yay olacak: 2,0 -> 2,5 -> 3,0 -> 3,5.
+//
+// Kesirli yogunluk tek kalipla olmaz. Her kademe bir kalip SETI; olculer
+// set boyunca sirayla donuyor, ortalama kesirli cikiyor.
+const P = {
+  s2a: ['step_L', null,      'step_R', null   ],   // 2
+  s2b: ['jump',   null,      'duck',   null   ],   // 2
+  s3a: ['step_L', 'jump',    'step_R', null   ],   // 3
+  s3b: ['step_L', null,      'step_R', 'duck' ],   // 3
+  s4a: ['step_L', 'jump',    'step_R', 'duck' ],   // 4
+  s4b: ['step_L', 'dodge_R', 'jump',   'duck' ],   // 4
+  s4c: ['step_L', 'punch',   'step_R', 'jump' ],   // 4
+  s3c: ['step_L', 'dodge_R', 'step_R', null   ],   // 3 - kacis
+  s3d: ['punch',  null,      'step_R', 'duck' ],   // 3 - yumruk
+  m1:  ['reach_L', null, null,     null],          // aktif mola
+  m2:  [null,      null, 'reach_R', null],
+  m3:  ['hold',    null, null,     null],
+  m0:  [null,      null, null,     null],
+  bos: [null,      null, null,     null],
+};
+const YOGUNLUK = {
+  bos:  ['bos'],
+  d15:  ['s2a', 'm0'],                 // 1,5 - ogretme baslangici
+  d20:  ['s2a', 's2b'],                // 2,0 - tur 1
+  d25:  ['s2a', 's3c', 's3a', 's2b'],  // 2,5 - kacis girer
+  d30:  ['s3a', 's3d', 's3b', 's3a'],  // 3,0 - yumruk girer
+  d35:  ['s3a', 's4b', 's3b', 's4a'],  // 3,5
+  d40:  ['s4b', 's4c'],                // 4,0 - son duz
+  mola: ['m1', 'm2', 'm3', 'm0'],      // 0,75 - ekran bosalmiyor
+};
+
+// ---------------------------------------------------------- CUE URETECI
+// AYNALAMA: her 8 olculuk cumlede sol/sag takas. Vucut dengeli calissin.
+// Rakipler bunu sistematik yapmiyor; bir egzersiz videosunda yapilmali.
+const AYNA = { step_L:'step_R', step_R:'step_L',
+               dodge_L:'dodge_R', dodge_R:'dodge_L',
+               reach_L:'reach_R', reach_R:'reach_L' };
+
+const NOTALAR = [];
+for (const [b0, b1, kademeAdi] of BLOKLAR) {
+  const set = YOGUNLUK[kademeAdi] || YOGUNLUK.bos;
+  for (let olcu = b0; olcu < b1; olcu++) {
+    const kalip = P[set[(olcu - b0) % set.length]];
+    const aynala = Math.floor(olcu / 8) % 2 === 1;
+    for (let v = 0; v < 4; v++) {
+      let tip = kalip[v];
+      if (!tip) continue;
+      if (aynala && AYNA[tip]) tip = AYNA[tip];
+      NOTALAR.push({ tip, t: olcu * OLCU + v * VURUS, ...CUE[tip] });
+    }
+    // SEKIZLIK PATLAMA
+    // Rakipte 966 cue'nun tamami ceyreklikte - sekizlik altbolunme yok.
+    // 8 olculuk cumlenin SON olcusunde yarim vurusluk bir cift koyuyoruz:
+    // ortalama yogunlugu neredeyse hic degistirmiyor ama "burada bir sey
+    // oldu" hissi veriyor. Molada ve giriste yok.
+    const sonOlcu = (olcu + 1) % 8 === 0;
+    if (sonOlcu && kademeAdi !== 'mola' && kademeAdi !== 'bos') {
+      const t0 = olcu * OLCU + 3 * VURUS + VURUS / 2;
+      const tip = aynala ? 'step_L' : 'step_R';
+      NOTALAR.push({ tip, t: t0, ...CUE[tip], patlama: true });
+    }
+  }
+}
+NOTALAR.sort((a,b) => a.t - b.t);
+NOTALAR.forEach((n,i) => n.combo = i + 1);
+
+// ------------------------------------------------------------------ SAHNE
+const canvas = document.getElementById('cikti');
+canvas.width = W; canvas.height = H;
+
+// alpha: siluet gecisi saydam arka planla render edilecek
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setSize(W, H, false);
+renderer.setPixelRatio(1);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(PALET.zemin);
+scene.fog = new THREE.Fog(PALET.zemin, SIS_YAKIN, SIS_UZAK);
+
+const camera = new THREE.PerspectiveCamera(52, W/H, 0.1, 300);
+camera.position.set(0, 3.7, 10.8);
+camera.lookAt(0, 0.55, -6);
+
+// --- zemin: kaydirilan neon izgara (kamera sabit, doku akar)
+const zeminMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uKaydir: { value: 0 },
+    uGrid:   { value: new THREE.Color(PALET.grid) },
+    uGrid2:  { value: new THREE.Color('#00e5ff') },
+    uGrid3:  { value: new THREE.Color('#8b5cff') },
+    uZemin:  { value: new THREE.Color(PALET.zemin) },
+    uSis:    { value: new THREE.Color(PALET.zemin) },
+    uSisYakin:{ value: SIS_YAKIN }, uSisUzak:{ value: SIS_UZAK },
+    uTema:   { value: TB ? 1.0 : 0.0 },
+  },
+  vertexShader: `
+    varying vec2 vUv; varying vec3 vGoz;
+    void main(){
+      vUv = uv;
+      vec4 mv = modelViewMatrix * vec4(position,1.0);
+      vGoz = mv.xyz;              // fragment basina mesafe icin
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform float uKaydir; uniform vec3 uGrid, uGrid2, uGrid3, uZemin, uSis;
+    uniform float uSisYakin, uSisUzak, uTema;
+    varying vec2 vUv; varying vec3 vGoz;
+    float cizgi(float k, float sik, float kal){
+      float f = abs(fract(k*sik - 0.5) - 0.5) / fwidth(k*sik);
+      return 1.0 - smoothstep(0.0, kal, f);
+    }
+    void main(){
+      // KOYU YOL + PARLAK SERITLER
+      // Referans kanallarda zemin koyu, nota parlak. Bizde tersiydi ve
+      // nota zeminle yarisiyordu. Artik izgara sadece derinlik ipucu,
+      // asil parlaklik lane ayraclarinda.
+      // Cizgi SAYISI kritik: sik cizgiler ufka dogru birbirine karisip
+      // tek parlak yuzeye donusuyordu. Seyrek cizgi = koyu yol.
+      float boyuna = cizgi(vUv.x, 9.0, 1.0);
+      float enine  = cizgi(vUv.y + uKaydir, 16.0, 1.0);
+      float g = max(boyuna * 0.40, enine * 0.16);
+      // akan renk bantlari: tunel boyunca yumusak gecisli, 3 renkli
+      // (tek renk izgara monoton duruyor; sert renk gecisi de bunaltir,
+      //  bu yuzden sinus ile yumusak harmanlaniyor)
+      float bantF = uTema > 0.5 ? 24.0 : 2.4;
+      float f = ((vUv.y * bantF) + uKaydir * bantF) * 6.28318;
+      // agirliklari sivrilt + normalize et: renkler birbirine karisip
+      // beyaza kacmasin, doygun kalsin
+      float w1 = pow(0.5 + 0.5*sin(f),          3.0);
+      float w2 = pow(0.5 + 0.5*sin(f + 2.0944), 3.0);
+      float w3 = pow(0.5 + 0.5*sin(f + 4.1888), 3.0);
+      vec3 gr = (uGrid*w1 + uGrid2*w2 + uGrid3*w3) / max(w1+w2+w3, 0.001);
+      // yol yuzeyi: merkeze dogru biraz daha koyu asfalt hissi
+      float merkez = 1.0 - smoothstep(0.26, 0.48, abs(vUv.x - 0.5));
+      // Yol her iki temada da KOYU. Olcum: referans karelerin %57'si
+      // neredeyse siyah. Parlaklik yolda degil CIZGIDE.
+      // uTema sadece kontrasti sertlestirir.
+      float kuv = uTema > 0.5 ? 1.45 : 1.0;          // B'de cizgi daha kuvvetli
+      // B'de izgara YOLUN DISINA tasmaz. Referansta yolun disi bos uzay;
+      // her yere yayilan izgara hem parlakligi hem dagitikligi artiriyordu.
+      float gg = uTema > 0.5 ? max(boyuna * 0.40, enine * 0.16) * merkez : g;
+      vec3 yol = uZemin * mix(0.85, 0.06, merkez);
+      renk = mix(yol, gr, min(1.0, gg * kuv));
+      renk += gr * gg * (uTema > 0.5 ? 0.26 : 0.16);  // parlama gucu
+      float mesafe = length(vGoz);                    // FRAGMENT basina - dogru
+      float sis = smoothstep(uSisYakin, uSisUzak, mesafe);
+      // sise KAPANMIYOR, SAYDAMLASIYOR - yoksa arkadaki ufuk/gunes kapanir
+      gl_FragColor = vec4(renk, 1.0 - sis);
+      #include <colorspace_fragment>   // cikti renk uzayi - yoksa zemin arka plandan koyu kalir
+    }`,
+  transparent: true,
+  depthWrite: false,
+});
+const zemin = new THREE.Mesh(new THREE.PlaneGeometry(34, 220, 1, 1), zeminMat);
+zemin.rotation.x = -Math.PI/2;
+zemin.position.z = -95;
+zemin.renderOrder = 0;
+scene.add(zemin);
+
+// --- lane seritleri
+LANE_X.forEach((x, i) => {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.09, 220),
+    new THREE.MeshBasicMaterial({ color: PALET.lane[i],
+      transparent:true, opacity: 0.85,
+      blending: HARMAN, depthWrite:false, fog:true })
+  );
+  m.rotation.x = -Math.PI/2; m.position.set(x, 0.02, -95);
+  scene.add(m);
+});
+
+// --- YOL PLATFORMU (B)
+// Referansta yol boyali bir zemin degil, KALINLIGI OLAN yukseltilmis bir
+// platform: yan yuzleri goruluyor, altinda ayri bir dunya zemini var ve
+// yuzeyinde kesikli serit cizgileri akiyor. Bizde tek duz duzlem vardi.
+const YOL_GEN = 7.0, YOL_KAL = 0.85;
+let yolUstMat = null;
+if (TB) {
+  // dunya zemini asagi iniyor - yol onun uzerinde YUKSELIYOR
+  zemin.position.y = -YOL_KAL;
+
+  // govde: kalinligi olan kutu, yan yuzleri kameradan goruluyor
+  const yolGovde = new THREE.Mesh(
+    new THREE.BoxGeometry(YOL_GEN, YOL_KAL, 220),
+    new THREE.MeshBasicMaterial({ color:'#07060f', fog:true }));
+  yolGovde.position.set(0, -YOL_KAL/2, -95);
+  scene.add(yolGovde);
+
+  // ust yuzey: kesikli serit cizgileri dokuda, uzunluk boyunca akiyor
+  const yc = document.createElement('canvas'); yc.width = 256; yc.height = 256;
+  const yg = yc.getContext('2d');
+  yg.fillStyle = '#05040d'; yg.fillRect(0,0,256,256);
+  yg.strokeStyle = '#ffffff'; yg.lineWidth = 5; yg.setLineDash([46, 42]);
+  for (const x of [256/3, 512/3]) {          // uc lane -> iki ayrac
+    yg.beginPath(); yg.moveTo(x, -20); yg.lineTo(x, 276); yg.stroke();
+  }
+  yg.setLineDash([]);
+  yg.lineWidth = 7;                          // kenar hatlari kesiksiz
+  for (const x of [4, 252]) {
+    yg.beginPath(); yg.moveTo(x, 0); yg.lineTo(x, 256); yg.stroke();
+  }
+  const yolDoku = new THREE.CanvasTexture(yc);
+  yolDoku.wrapS = yolDoku.wrapT = THREE.RepeatWrapping;
+  yolDoku.repeat.set(1, 34);
+  yolUstMat = new THREE.MeshBasicMaterial({ map: yolDoku, transparent:true,
+    blending: THREE.AdditiveBlending, depthWrite:false, fog:true });
+  const yolUst = new THREE.Mesh(new THREE.PlaneGeometry(YOL_GEN, 220), yolUstMat);
+  yolUst.rotation.x = -Math.PI/2; yolUst.position.set(0, 0.012, -95);
+  yolUst.renderOrder = 1;
+  scene.add(yolUst);
+}
+
+// ==================================================== DOLGU KATMANLARI
+// Kareyi doldurmak icin: ufuk gunesi + ufuk parlamasi + yandan akan sutunlar.
+// Hepsi oyun alaninin ARKASINDA ve daha sonuk - nota her zaman en okunakli sey.
+const HIZ = (Z_VURUS - Z_DOGUM) / YAKLASMA;   // birim/sn - notayla ayni
+
+// --- ufuk gunesi (yatay dilimli synthwave gunesi)
+// B temasinda "gunes" yerine BULUT BANKASI + gunes: kareyi ustten dolduran
+// sey o. Synthwave gunesi koyu zeminde ise yarar, gokyuzunde kaybolur.
+function bulutDoku(){
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 384;
+  const g = c.getContext('2d');
+  // gunes
+  const gg = g.createRadialGradient(792, 96, 10, 792, 96, 118);
+  gg.addColorStop(0,   'rgba(255,252,214,1)');
+  gg.addColorStop(0.42,'rgba(255,238,140,0.95)');
+  gg.addColorStop(1,   'rgba(255,238,140,0)');
+  g.fillStyle = gg; g.fillRect(600, 0, 424, 260);
+  // bulutlar: ust uste binen daireler - deterministik, indeksten turetiliyor
+  const puf = (cx, cy, r, a) => {
+    g.fillStyle = `rgba(255,255,255,${a})`;
+    for (let i = 0; i < 7; i++){
+      const t = i / 6;
+      g.beginPath();
+      g.arc(cx + (t - 0.5) * r * 2.6, cy - Math.sin(t * Math.PI) * r * 0.55,
+            r * (0.52 + 0.42 * Math.sin(t * Math.PI)), 0, 6.2832);
+      g.fill();
+    }
+  };
+  puf(180, 176, 62, 0.96); puf(470, 132, 46, 0.90);
+  puf(760, 196, 54, 0.86); puf(950, 128, 38, 0.80);
+  return new THREE.CanvasTexture(c);
+}
+function gunesDoku(){
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,60,0,470);
+  grad.addColorStop(0,   '#fff2a8');
+  grad.addColorStop(0.35,'#ff5ec4');
+  grad.addColorStop(1,   '#7b2bff');
+  g.fillStyle = grad;
+  g.beginPath(); g.arc(256,256,200,0,Math.PI*2); g.fill();
+  // asagi indikce kalinlasan bosluklar
+  g.globalCompositeOperation = 'destination-out';
+  for (let i=0; i<14; i++){
+    const y = 262 + i*13;
+    g.fillRect(0, y, 512, 2 + i*0.85);
+  }
+  g.globalCompositeOperation = 'source-over';
+  return new THREE.CanvasTexture(c);
+}
+let gunes = null, ufuk = null;
+const sutunlar = [];
+const SUTUN_ARA = 5.0, SUTUN_SAY = TB ? 30 : 9, SUTUN_X = 7.4;
+
+if (!SADE) {
+  gunes = new THREE.Mesh(new THREE.PlaneGeometry(19, 19),
+    new THREE.MeshBasicMaterial({ map: gunesDoku(), transparent:true,
+      blending: THREE.AdditiveBlending, depthWrite:false, fog:false }));
+  gunes.position.set(0, 5.4, -62);
+  gunes.visible = !TB;
+  gunes.material.depthTest = false;    // arka fon: her zaman en altta cizilir
+  gunes.renderOrder = -3;
+  scene.add(gunes);
+
+  // ufuk parlamasi - yatay yumusak bant
+  const uc = document.createElement('canvas'); uc.width = 8; uc.height = 128;
+  const ug = uc.getContext('2d');
+  const ugr = ug.createLinearGradient(0,0,0,128);
+  ugr.addColorStop(0,'rgba(255,47,208,0)');
+  ugr.addColorStop(0.5,'rgba(255,94,196,0.85)');
+  ugr.addColorStop(1,'rgba(123,43,255,0)');
+  ug.fillStyle = ugr; ug.fillRect(0,0,8,128);
+  ufuk = new THREE.Mesh(new THREE.PlaneGeometry(150, 7),
+    new THREE.MeshBasicMaterial({ map:new THREE.CanvasTexture(uc), transparent:true,
+      blending: HARMAN, depthWrite:false, fog:false }));
+  ufuk.position.set(0, 0.9, -60);
+  ufuk.visible = !TB;
+  ufuk.material.depthTest = false;
+  ufuk.renderOrder = -2;
+  scene.add(ufuk);
+
+  // --- kemer gecitleri: tunelin asil dolgusu
+  // Duz zemin "ova" gibi durur; ic ice gecen cerceveler mekani kapatir ve
+  // yanindan akip gectikleri icin hiz hissini paralaksla verirler.
+  function kemerDoku(tip){
+    const c = document.createElement('canvas'); c.width = 512; c.height = 300;
+    const g = c.getContext('2d');
+    // sekil tek yerde tanimli - iki tema da ayni yolu kullaniyor
+    const yol = () => {
+      g.beginPath();
+      if (tip === 'keskin') { g.rect(24,24,464,252); }
+      else if (tip === 'altigen') {
+        const x0=24,y0=24,w=464,h=252,kk=80;
+        g.moveTo(x0+kk,y0); g.lineTo(x0+w-kk,y0); g.lineTo(x0+w,y0+h/2);
+        g.lineTo(x0+w-kk,y0+h); g.lineTo(x0+kk,y0+h); g.lineTo(x0,y0+h/2);
+        g.closePath();
+      }
+      else if (tip === 'ikiz') { g.rect(24,24,464,252); g.rect(74,60,364,180); }
+      // --- B temasinin dort mekani ---
+      else if (tip === 'kemer') {
+        // parabolik kemer: alti ACIK, tepesi egri. Yolun uzerinden geciyor.
+        g.moveTo(30, 292); g.lineTo(30, 190);
+        g.bezierCurveTo(30, 40, 482, 40, 482, 190);
+        g.lineTo(482, 292);
+      }
+      else if (tip === 'tonoz') {
+        // tonoz tunel: duz yan duvarlar + yarim daire tepe, alti acik
+        g.moveTo(56, 292); g.lineTo(56, 150);
+        g.arc(256, 150, 200, Math.PI, 0);
+        g.lineTo(456, 292);
+      }
+      else if (tip === 'halka') {
+        // ic ice halkalar: kapali elips. Tunel "boru" gibi okunur.
+        g.ellipse(256, 150, 210, 128, 0, 0, Math.PI * 2);
+      }
+      else if (tip === 'elmas') {
+        g.moveTo(256, 18); g.lineTo(488, 150);
+        g.lineTo(256, 282); g.lineTo(24, 150); g.closePath();
+      }
+      else { g.roundRect(24,24,464,252,30); }
+    };
+    const ciz = (kal, alfa, blur) => {
+      g.lineWidth = kal; g.strokeStyle = `rgba(255,255,255,${alfa})`;
+      g.shadowColor = 'rgba(255,255,255,0.9)'; g.shadowBlur = blur;
+      yol(); g.stroke();
+    };
+    if (TB) {
+      // Referansta kemerler duz hat degil, SEGMENTLI isik tupu: kesik kesik
+      // parlak boncuklar. Duz hat "cizim", segmentli hat "armatur" okunuyor.
+      ciz(11, 0.16, 20);   // dis hale - dar ve sonuk
+      ciz(5,  0.55, 8);    // govde
+      g.setLineDash([26, 13]);
+      ciz(2.6, 1.00, 0);   // cekirdek: segmentli
+      g.setLineDash([]);
+    } else {
+      ciz(26, 0.30, 34);   // dis hale
+      ciz(12, 0.75, 16);   // govde
+      ciz(5,  1.00, 0);    // cekirdek
+    }
+    return new THREE.CanvasTexture(c);
+  }
+  const KEMER_DOKULARI = TB ? {
+    kemer: kemerDoku('kemer'), tonoz: kemerDoku('tonoz'),
+    halka: kemerDoku('halka'), elmas: kemerDoku('elmas'),
+  } : {
+    yuvarlak: kemerDoku('yuvarlak'), altigen: kemerDoku('altigen'),
+    ikiz:     kemerDoku('ikiz'),     keskin:  kemerDoku('keskin'),
+  };
+  const KEMER_DOKU = TB ? KEMER_DOKULARI.kemer : KEMER_DOKULARI.yuvarlak;
+  window.__KEMER_DOKULARI = KEMER_DOKULARI;
+  // yumusak, uyumlu 5 renk - sert siyah/beyaz zitliktan kacinildi
+  const KEMER_RENK = ['#00e5ff','#ff2fd0','#8b5cff','#25d9c2','#ffb454'];
+  const kemerGeo = new THREE.PlaneGeometry(17.5, 10.3);
+  for (let i = 0; i < SUTUN_SAY; i++) {
+    const m = new THREE.Mesh(kemerGeo, new THREE.MeshBasicMaterial({
+      map: KEMER_DOKU, color: KEMER_RENK[i % KEMER_RENK.length],
+      transparent:true, opacity: TB ? 0.16 : 0.5,
+      blending: HARMAN, depthWrite:false, fog:true }));
+    m.position.set(0, 5.3, 0);     // alt kenar zemin hizasinda dursun
+    m.userData = { i };
+    scene.add(m); sutunlar.push(m);
+  }
+}
+
+// --- SEHIR: iki yandan akan gokdelen duvarlari
+// Yolun disini dolduruyor ve paralaksla hiz hissini artiriyor.
+const binalar = [];
+if (TB && !SADE) {
+  // DEKOR: yolun disini dolduran yan duvarlar. Onceki halde tek tip vardi
+  // (sehir) ve alti ortamin hepsinde ayni duvar akiyordu - palet degisse de
+  // her yer ayni mekan gibi okunuyordu. Artik her ortamin kendi dekoru var.
+  function dekorDoku(tip, tohum){
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d');
+    const kar = (n) => { const v = Math.sin((n + tohum * 37.7) * 127.1) * 43758.5453;
+                         return v - Math.floor(v); };
+    g.fillStyle = '#020206'; g.fillRect(0, 0, 512, 512);
+
+    if (tip === 'yildiz') {
+      // derin uzay: seyrek yildizlar + yumusak nebula lekeleri
+      for (let i = 0; i < 3; i++) {
+        const gx = kar(i)*512, gy = kar(i+5)*512, r = 90 + kar(i+9)*150;
+        const gr = g.createRadialGradient(gx, gy, 0, gx, gy, r);
+        const renk = i % 2 ? '120,60,255' : '40,160,255';
+        gr.addColorStop(0, `rgba(${renk},0.22)`); gr.addColorStop(1, `rgba(${renk},0)`);
+        g.fillStyle = gr; g.fillRect(gx-r, gy-r, r*2, r*2);
+      }
+      for (let i = 0; i < 190; i++) {
+        const x = kar(i)*512, y = kar(i+31)*512, r = kar(i+77);
+        g.fillStyle = r > 0.9 ? 'rgba(180,240,255,0.95)' : `rgba(220,230,255,${0.2+r*0.5})`;
+        const b = r > 0.9 ? 2.6 : 1.5;
+        g.fillRect(x, y, b, b);
+      }
+    }
+    else if (tip === 'devre') {
+      // devre karti: dik acili izler + lehim noktalari
+      g.lineCap = 'square';
+      for (let i = 0; i < 26; i++) {
+        let x = kar(i)*512, y = kar(i+13)*512;
+        g.strokeStyle = i % 3 === 0 ? 'rgba(0,255,200,0.55)' : 'rgba(90,120,255,0.35)';
+        g.lineWidth = 2 + (i % 2);
+        g.beginPath(); g.moveTo(x, y);
+        for (let k = 0; k < 4; k++) {
+          if (k % 2) y += (kar(i*7+k) - 0.5) * 190; else x += (kar(i*5+k) - 0.5) * 190;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+        g.fillStyle = 'rgba(0,255,200,0.8)';
+        g.beginPath(); g.arc(x, y, 4, 0, 6.2832); g.fill();
+      }
+    }
+    else if (tip === 'sutun') {
+      // plazma: dikey isik sutunlari, aralarinda karanlik
+      for (let i = 0; i < 14; i++) {
+        const x = kar(i)*512, w = 8 + kar(i+3)*22, h = 200 + kar(i+7)*312;
+        const gr = g.createLinearGradient(0, 512-h, 0, 512);
+        gr.addColorStop(0, 'rgba(255,110,60,0)');
+        gr.addColorStop(0.4, `rgba(255,${60+kar(i)*90|0},140,0.55)`);
+        gr.addColorStop(1, 'rgba(160,32,255,0.75)');
+        g.fillStyle = gr; g.fillRect(x, 512-h, w, h);
+      }
+    }
+    else if (tip === 'kristal') {
+      // buz: acili kirilmis parcalar
+      for (let i = 0; i < 22; i++) {
+        const x = kar(i)*512, y = kar(i+17)*512, r = 26 + kar(i+41)*82;
+        g.beginPath();
+        g.moveTo(x, y - r);
+        g.lineTo(x + r*0.45, y + r*0.25);
+        g.lineTo(x - r*0.30, y + r*0.75);
+        g.closePath();
+        g.fillStyle = `rgba(${140+kar(i)*80|0},240,255,${0.10 + kar(i+2)*0.22})`;
+        g.fill();
+        g.strokeStyle = 'rgba(190,250,255,0.55)'; g.lineWidth = 1.6; g.stroke();
+      }
+    }
+    else {
+      return binaDoku(tohum);          // 'sehir'
+    }
+    return new THREE.CanvasTexture(c);
+  }
+
+  function binaDoku(tohum){
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const g = c.getContext('2d');
+    // deterministik sozde-rastgele: indeksten turetiliyor, duvar saati yok
+    const kar = (n) => { const v = Math.sin((n + tohum * 37.7) * 127.1) * 43758.5453;
+                         return v - Math.floor(v); };
+    g.fillStyle = '#020206'; g.fillRect(0, 0, 512, 512);
+    let x = 0, i = 0;
+    while (x < 512) {
+      const gen = 42 + kar(i) * 58;
+      const yuk = 150 + kar(i + 9) * 340;
+      const y0 = 512 - yuk;
+      g.fillStyle = '#050411';                       // bina govdesi
+      g.fillRect(x + 3, y0, gen - 6, yuk);
+      // pencere isiklari - seyrek, iki renk
+      for (let py = y0 + 14; py < 500; py += 22) {
+        for (let px = x + 12; px < x + gen - 12; px += 18) {
+          const r = kar(px * 3 + py);
+          if (r > 0.80) {                            // seyrek pencere
+            g.fillStyle = r > 0.93 ? 'rgba(120,240,255,0.80)'
+                        : r > 0.87 ? 'rgba(255,110,200,0.65)'
+                                   : 'rgba(150,170,255,0.34)';
+            g.fillRect(px, py, 7, 10);
+          }
+        }
+      }
+      x += gen; i++;
+    }
+    return new THREE.CanvasTexture(c);
+  }
+  // her dekor tipi icin 14 doku onceden uretiliyor - kare basina uretim yok
+  window.__DEKOR = {};
+  for (const tip of ['sehir','yildiz','devre','sutun','kristal'])
+    window.__DEKOR[tip] = Array.from({length:14}, (_,i) => dekorDoku(tip, i));
+  const DEKOR_DOKULARI = window.__DEKOR;
+  const BINA_ARA = 26, BINA_SAY = 7;
+  for (let i = 0; i < BINA_SAY * 2; i++) {
+    const sag = i % 2 === 1;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(26, 17),
+      new THREE.MeshBasicMaterial({ map: DEKOR_DOKULARI.sehir[i], transparent:true,
+        depthWrite:false, fog:true }));
+    m.position.set(sag ? 15.5 : -15.5, 6.2, 0);
+    m.rotation.y = sag ? -Math.PI/2 : Math.PI/2;
+    m.userData = { i: Math.floor(i / 2), di: i, sag, ara: BINA_ARA, say: BINA_SAY };
+    scene.add(m); binalar.push(m);
+  }
+}
+
+// --- UCUSAN PARCACIKLAR
+// Referansta her sahnede enkaz/konfeti suzuluyor. Cok ucuz ama sahneyi
+// "canli" yapan seylerden biri. Konumlar indeksten turetiliyor -> deterministik.
+const parcaciklar = [];
+if (!SADE) {
+  const PARCA_SAY = 80, PARCA_KAPSAM = 44;
+  const pGeo = new THREE.PlaneGeometry(0.24, 0.24);
+  const kar = (n) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+  for (let i = 0; i < PARCA_SAY; i++) {
+    const m = new THREE.Mesh(pGeo, new THREE.MeshBasicMaterial({
+      color: '#ffffff', transparent: true, opacity: 0.5,
+      blending: HARMAN, depthWrite: false, fog: true,
+      side: THREE.DoubleSide }));
+    // Referansta parcaciklar esit dagilmiyor, KUME halinde patliyor.
+    // Her 10 parcacik bir kume; kume merkezi indeksten turetiliyor.
+    const ku = Math.floor(i / 10);
+    const kx = (kar(ku * 17 + 3) - 0.5) * 22;
+    const ky = 1.2 + kar(ku * 17 + 8) * 6.5;
+    const kz = kar(ku * 17 + 13) * PARCA_KAPSAM;
+    m.userData = {
+      x: kx + (kar(i) - 0.5) * 3.4,
+      y: ky + (kar(i + 11) - 0.5) * 2.6,
+      z0: (kz + (kar(i + 23) - 0.5) * 4.0 + PARCA_KAPSAM) % PARCA_KAPSAM,
+      hiz: 0.55 + kar(i + 37) * 0.8,          // farkli hizlar = derinlik hissi
+      don: kar(i + 51) * 6.28,
+      olcek: 0.5 + kar(i + 71) * 1.5,
+      ci: i % 5,                                          // kendi rengi
+      kapsam: PARCA_KAPSAM,
+    };
+    m.scale.setScalar(m.userData.olcek);
+    scene.add(m); parcaciklar.push(m);
+  }
+}
+
+// --- vurus cizgisi
+const vurusCizgi = new THREE.Mesh(
+  new THREE.PlaneGeometry(9.5, TB ? 0.22 : 0.18),
+  new THREE.MeshBasicMaterial({ color: PALET.cizgi, transparent:true,
+    blending: HARMAN, depthWrite:false })
+);
+vurusCizgi.rotation.x = -Math.PI/2;
+vurusCizgi.position.set(0, 0.05, Z_VURUS);
+scene.add(vurusCizgi);
+
+// --- nota havuzu
+// nota dokusu: yuvarlak kose + yumusak kenar parlamasi
+// (duz PlaneGeometry keskin dikdortgen verir; sekli dokudan aliyoruz)
+// renk parametresi SADECE B'de kullanilir.
+// Sebep: MeshBasicMaterial.color butun dokuyu carpar - beyaz dis kenar da
+// lane rengine boyanirdi ve nota, ayni renkteki yolun uzerinde kayboluyordu.
+// B'de renk dokunun ICINE gomuluyor, materyal rengi beyaz kaliyor; boylece
+// beyaz kenar her zaman beyaz, koyu kontur her zaman koyu.
+// ============================================================ INSAN PIKTOGRAMI
+// Her cue tipinin KENDI simgesi olmali ve simge INSAN olmali. Onceki halde
+// iki ayri hata vardi:
+//   1) Dikey kartlarda 'tip' hic okunmuyordu (yalnizca aynalama icin) - yedi
+//      hareketin hepsi ayni ayak izini gosteriyordu.
+//   2) Nota fayanslarinda 'jump' ile 'arms_up' birebir ayni cift yukari
+//      sevrondu; iki farkli hareket, tek simge.
+// Ayak izi ayrica hayvan patisi gibi okunuyordu. Artik yedi hareketin yedi
+// ayri INSAN pozu var; yon oklari poza eslik ediyor, onun yerine gecmiyor.
+//
+// g merkeze otelenmis, stroke/fill rengi cagiran tarafindan ayarlanmis olmali.
+function insanSimge(g, tip, S, kal){
+  g.lineWidth = kal; g.lineCap = 'round'; g.lineJoin = 'round';
+  const P = (x, y) => [x, y];
+  const hat = (...n) => {
+    g.beginPath();
+    n.forEach(([x, y], i) => i ? g.lineTo(x * S, y * S) : g.moveTo(x * S, y * S));
+    g.stroke();
+  };
+  const bas = (x, y, r) => {
+    g.beginPath(); g.arc(x * S, y * S, r * S, 0, 6.2832); g.fill();
+  };
+  const ok = (x, y, dx, dy, b) => {
+    b = b || 15;
+    g.beginPath();
+    g.moveTo((x + dx*b) * S, (y + dy*b) * S);
+    g.lineTo((x - dy*b*0.85 - dx*b*0.5) * S, (y + dx*b*0.85 - dy*b*0.5) * S);
+    g.lineTo((x + dy*b*0.85 - dx*b*0.5) * S, (y - dx*b*0.85 - dy*b*0.5) * S);
+    g.closePath(); g.fill();
+  };
+
+  if (tip === 'step_L' || tip === 'step_R') {
+    g.save(); if (tip === 'step_L') g.scale(-1, 1);
+    bas(0, -48, 14);
+    hat(P(0,-32), P(0,6));
+    hat(P(0,-24), P(-26,-12));
+    hat(P(0,-24), P(30,-34));
+    hat(P(0,6), P(-8,28), P(-10,48));
+    hat(P(0,6), P(24,26), P(40,44));
+    ok(58, -6, 1, 0);
+    g.restore();
+  }
+  else if (tip === 'dodge_R' || tip === 'dodge_L') {
+    g.save(); if (tip === 'dodge_L') g.scale(-1, 1);
+    g.rotate(0.26);
+    bas(0, -48, 14);
+    hat(P(0,-32), P(0,6));
+    hat(P(0,-26), P(-32,-18));
+    hat(P(0,-26), P(32,-32));
+    hat(P(0,6), P(-16,28), P(-22,48));
+    hat(P(0,6), P(20,26), P(30,44));
+    g.rotate(-0.26);
+    ok(50, -6, 1, 0, 13); ok(72, -6, 1, 0, 13);
+    g.restore();
+  }
+  else if (tip === 'jump') {
+    bas(0, -50, 14);
+    hat(P(0,-34), P(0,2));
+    hat(P(0,-28), P(-26,-58));
+    hat(P(0,-28), P(26,-58));
+    hat(P(0,2), P(-20,20), P(-12,40));
+    hat(P(0,2), P(20,20), P(12,40));
+    ok(0, -94, 0, -1);
+  }
+  else if (tip === 'duck') {
+    bas(0, -26, 14);
+    hat(P(0,-10), P(0,10));
+    hat(P(0,-6), P(26,-4), P(38,-12));
+    hat(P(0,-6), P(-22,2));
+    hat(P(0,10), P(-26,18), P(-24,46));
+    hat(P(0,10), P(24,18), P(26,46));
+    ok(0, -74, 0, 1);
+  }
+  else if (tip === 'punch') {
+    bas(-6, -48, 14);
+    hat(P(-6,-32), P(-6,6));
+    hat(P(-6,-26), P(-26,-14), P(-14,-2));
+    hat(P(-6,-26), P(30,-26));
+    g.beginPath(); g.arc(44*S, -26*S, 13*S, 0, 6.2832); g.fill();
+    hat(P(-6,6), P(-26,26), P(-32,48));
+    hat(P(-6,6), P(14,28), P(18,48));
+  }
+  else if (tip === 'reach_L' || tip === 'reach_R') {
+    // esneme: bir kol basin uzerinden karsi yona uzaniyor
+    g.save(); if (tip === 'reach_L') g.scale(-1, 1);
+    bas(0, -48, 14);
+    hat(P(0,-32), P(2,6));
+    hat(P(0,-26), P(-18,-6), P(-10,10));
+    hat(P(0,-28), P(18,-56), P(40,-64));      // uzanan kol
+    hat(P(2,6), P(-14,28), P(-18,48));
+    hat(P(2,6), P(18,28), P(22,48));
+    g.restore();
+  }
+  else if (tip === 'hold') {
+    // tutma notasi: iki kol yukarida SABIT. Altina cizgi - "burada kal".
+    bas(0, -50, 14);
+    hat(P(0,-34), P(0,6));
+    hat(P(0,-30), P(-20,-70));
+    hat(P(0,-30), P(20,-70));
+    hat(P(0,6), P(-16,28), P(-18,48));
+    hat(P(0,6), P(16,28), P(18,48));
+    g.save(); g.lineWidth = kal * 0.8;
+    hat(P(-40,62), P(40,62));                 // tutma cizgisi
+    g.restore();
+  }
+  else if (tip === 'arms_up') {
+    bas(0, -50, 14);
+    hat(P(0,-34), P(0,6));
+    hat(P(0,-30), P(-15,-74));
+    hat(P(0,-30), P(15,-74));
+    hat(P(0,6), P(-18,28), P(-22,48));
+    hat(P(0,6), P(18,28), P(22,48));
+  }
+  else {
+    bas(0, -48, 14);
+    hat(P(0,-32), P(0,6));
+    hat(P(0,-24), P(-22,-6));
+    hat(P(0,-24), P(22,-6));
+    hat(P(0,6), P(-14,28), P(-16,48));
+    hat(P(0,6), P(14,28), P(16,48));
+  }
+}
+
+function notaDoku(tip, renk, uzun){
+  const c = document.createElement('canvas'); c.width = 320;
+  // B'de ust yuz neredeyse kare (2.05 x 2.45) - doku da ona yakin olmali,
+  // yoksa simge yatay eziliyor. Tutma notasi uzun oldugu icin tuvali de uzuyor.
+  c.height = TB ? Math.round(300 * (uzun || 1)) : 128;
+  const g = c.getContext('2d');
+  const ciz = (x,y,w,h,r) => { g.beginPath(); g.roundRect(x,y,w,h,r); g.fill(); };
+  const yuk = c.height;
+
+  if (TB) {
+    // B: hale yok, KATI FAYANS.
+    // beyaz kenar -> koyu kontur -> renkli govde -> acik ust yuz
+    // Referans olcumu: nota PARLAMIYOR. Duz doygun fayans, ince beyaz kenar,
+    // uzerinde koyu simge. Parlama sahnede; notada degil.
+    g.shadowColor = renk || '#ffffff'; g.shadowBlur = 26;
+    g.fillStyle = 'rgba(255,255,255,0.92)';
+    ciz(14, 14, 292, yuk - 28, 34);         // ince beyaz kenar
+    g.shadowBlur = 0;
+    g.fillStyle = renk || '#ffffff';
+    ciz(22, 22, 276, yuk - 44, 28);         // tam doygun govde
+    g.fillStyle = 'rgba(255,255,255,0.14)';
+    ciz(22, 22, 276, (yuk - 44) * 0.34, 16); // ust kenar parlamasi
+  } else {
+  g.shadowColor = 'rgba(255,255,255,0.85)'; g.shadowBlur = 26;
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  ciz(26, 26, 268, 76, 38);                 // dis hale
+
+  g.shadowBlur = 12;
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  ciz(34, 34, 252, 60, 30);                 // govde
+
+  g.shadowBlur = 0;
+  g.fillStyle = '#ffffff';
+  ciz(46, 46, 228, 36, 18);                 // parlak cekirdek
+  }
+
+  // --- HAREKET SIMGESI: izleyici hangi hareketi yapacagini notadan okusun.
+  //     Cekirdegin uzerine koyu oyularak ciziliyor -> her renkte okunur.
+  if (!TB) g.globalCompositeOperation = 'destination-out';
+  g.lineWidth = TB ? 30 : 20; g.lineCap = 'round'; g.lineJoin = 'round';
+  // B'de oyma yapilmaz: delik acilirsa altindaki yol gorunur ve simge kaybolur.
+  // Referansta simge SIYAH ve dolu - fayansin uzerine ciziliyor.
+  g.strokeStyle = TB ? 'rgba(8,4,22,0.95)' : '#000';
+  g.fillStyle   = TB ? 'rgba(8,4,22,0.95)' : '#000';
+  const cx = 160, cy = yuk / 2;
+  // Fayans yolun uzerinde yatik duruyor ve perspektifte dikeyde kisaliyor;
+  // figur o yuzden dikeyde gerilmis ciziliyor, ekranda normal oranli gorunsun.
+  g.save();
+  g.translate(cx, cy + (TB ? 8 : 0));
+  if (TB) g.scale(1.0, 1.24);
+  insanSimge(g, tip, TB ? 1.58 : 0.74, TB ? 20 : 11);
+  g.restore();
+  g.globalCompositeOperation = 'source-over';
+  return new THREE.CanvasTexture(c);
+}
+// Her cue tipinin kendi dokusu - simge farkli
+const NOTA_DOKULARI = {};
+for (const k of Object.keys(CUE)) NOTA_DOKULARI[k] = notaDoku(k);
+// B'de her cue tipi x her lane icin ayri doku - renk dokuya gomulu
+const NOTA_DOKULARI_B = {};
+if (TB) for (const k of Object.keys(CUE))
+  for (let l = 0; l < 3; l++)
+    NOTA_DOKULARI_B[k + '_' + l] = notaDoku(k, PALET.lane[l], CUE[k].uzun);
+const NOTA_DOKU = NOTA_DOKULARI.step_L;
+
+// Notalar BUYUK. Referansta kameraya yaklastiklarinda ekranin alt ucte
+// birini kapliyorlar; ince cubuk okunmuyor.
+const notaGeo = TB ? new THREE.BoxGeometry(2.05, 0.34, 2.45)
+                   : new THREE.PlaneGeometry(3.05, 1.45);
+// tutma notasi icin ayri, uzun geometri
+const notaGeoUzun = {};
+if (TB) for (const k of Object.keys(CUE)) if (CUE[k].uzun)
+  notaGeoUzun[k] = new THREE.BoxGeometry(2.05, 0.34, 2.45 * CUE[k].uzun);
+const notaMesh = NOTALAR.map(n => {
+  const doku = TB ? (NOTA_DOKULARI_B[n.tip + '_' + n.lane] || NOTA_DOKU)
+                  : (NOTA_DOKULARI[n.tip] || NOTA_DOKU);
+  let m;
+  if (TB) {
+    // BoxGeometry materyal sirasi: [+X, -X, +Y, -Y, +Z, -Z]. Simge sadece
+    // UST yuzde; yan yuzler duz koyu renk - blogun kalinligini gosteren sey o.
+    const yan = new THREE.Color(PALET.lane[n.lane]).multiplyScalar(0.42);
+    const yanMat = new THREE.MeshBasicMaterial({ color: yan, transparent:true,
+      blending: THREE.NormalBlending, depthWrite:false, fog:true });
+    const ustMat = new THREE.MeshBasicMaterial({ map: doku, color:'#ffffff',
+      transparent:true, blending: THREE.NormalBlending, depthWrite:false, fog:true });
+    m = new THREE.Mesh(notaGeoUzun[n.tip] || notaGeo,
+                       [yanMat, yanMat, ustMat, yanMat, yanMat, yanMat]);
+    m.userData.mats = [yanMat, ustMat];
+  } else {
+    m = new THREE.Mesh(notaGeo, new THREE.MeshBasicMaterial({
+      map: doku, color: PALET.lane[n.lane], transparent:true,
+      blending: HARMAN_NOTA, depthWrite:false, fog:true }));
+    // Tam yatik olunca perspektifte eziliyor ve simge okunmuyordu.
+    m.rotation.x = -Math.PI/2 + 0.62;
+  }
+  m.visible = false;
+  scene.add(m);
+  return m;
+});
+
+// --- HAREKET KARTLARI: ufuktan gelen dik kartlar
+// Kart kameraya bakiyor, perspektif kisalmasi yok -> figur gerdirilmiyor.
+function hareketKartDoku(tip, renk){
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const kutu = (x,y,w,h,r) => { g.beginPath(); g.roundRect(x,y,w,h,r); g.fill(); };
+  g.shadowColor = renk; g.shadowBlur = 30;
+  g.fillStyle = 'rgba(255,255,255,0.95)';
+  kutu(12, 12, 232, 232, 34);          // beyaz cerceve
+  g.shadowBlur = 0;
+  g.fillStyle = renk;
+  kutu(22, 22, 212, 212, 27);          // doygun govde
+
+  g.fillStyle = 'rgba(8,4,22,0.94)';
+  g.strokeStyle = 'rgba(8,4,22,0.94)';
+  g.save(); g.translate(128, 140);
+  insanSimge(g, tip, 1.30, 17);
+  g.restore();
+  return new THREE.CanvasTexture(c);
+}
+const KART_DOKU = {};
+if (TB) for (const k of Object.keys(CUE))
+  for (let l = 0; l < 3; l++) KART_DOKU[k + '_' + l] = hareketKartDoku(k, PALET.lane[l]);
+
+const kartGeo = new THREE.PlaneGeometry(1.55, 1.55);
+const kartMesh = TB ? NOTALAR.map(n => {
+  const m = new THREE.Mesh(kartGeo, new THREE.MeshBasicMaterial({
+    map: KART_DOKU[n.tip + '_' + n.lane], transparent:true,
+    blending: THREE.NormalBlending, depthWrite:false, fog:true }));
+  m.visible = false; scene.add(m); return m;
+}) : [];
+
+// --- LAZER ISINLARI: kareyi capraz kesen ince hatlar
+const lazerler = [];
+if (TB && !SADE) {
+  const LZ_SAY = 7, LZ_KAPSAM = 52;
+  const kar = (n) => { const v = Math.sin(n * 78.233) * 43758.5453; return v - Math.floor(v); };
+  for (let i = 0; i < LZ_SAY; i++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 46),
+      new THREE.MeshBasicMaterial({ color:'#ff2f6d', transparent:true, opacity:0.30,
+        blending: THREE.AdditiveBlending, depthWrite:false, fog:true }));
+    m.rotation.z = (kar(i) - 0.5) * 2.2;          // capraz aci
+    m.userData = { i, kapsam: LZ_KAPSAM, ara: LZ_KAPSAM / LZ_SAY,
+                   y: 2.4 + kar(i + 5) * 5.5 };
+    m.position.y = m.userData.y;
+    scene.add(m); lazerler.push(m);
+  }
+}
+
+// --- YOL DALGALARI: vurus cizgisinden yayilan halkalar
+const dalgalar = [];
+if (TB) {
+  for (let i = 0; i < 3; i++) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.14, 64),
+      new THREE.MeshBasicMaterial({ color:'#ffffff', transparent:true, opacity:0,
+        blending: THREE.AdditiveBlending, depthWrite:false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI/2; m.position.set(0, 0.05, Z_VURUS);
+    scene.add(m); dalgalar.push(m);
+  }
+}
+
+// --- vurus patlamasi
+const halkaGeo = new THREE.RingGeometry(0.72, 0.80, 48);
+const halka = new THREE.Mesh(halkaGeo, new THREE.MeshBasicMaterial({
+  color: PALET.rim, transparent:true, blending: HARMAN,
+  depthWrite:false, side: THREE.DoubleSide }));
+halka.rotation.x = -Math.PI/2;
+halka.visible = false;
+scene.add(halka);
+
+// ------------------------------------------------------------- SILUET
+// Kendi sahnesi + kamerasi. Ana sahneden bagimsiz render edilir.
+const sahneSiluet = new THREE.Scene();
+const PANEL = { g: 0.205, y: 0.255, h: 0.60, kenar: 0.030 };   // orana gore
+const kameraSiluet = new THREE.PerspectiveCamera(
+  26, (PANEL.g * 1280) / (PANEL.h * 720), 0.1, 60);
+// Figur olculdu: yukseklik ~4.7 birim, dikey merkez y~1.05.
+// 26 derece FOV'da tamaminin sigmasi icin ~12 birim mesafe gerekiyor.
+// dinamik pozlarda (kollar acik) tasmasin diye pay birakildi
+kameraSiluet.position.set(0, 1.05, 13.8);
+kameraSiluet.lookAt(0, 1.05, 0);
+const yukleyici = new FBXLoader();
+function yukle(ad){
+  return new Promise(res => yukleyici.load(`/02-hareketler/${ad}.fbx`,
+    o => res(o), undefined, () => res(null)));
+}
+
+// ONEMLI: 'Without Skin' dosyalarda SADECE iskelet var, cizilecek gÃ¶vde yok.
+// Bu yuzden tek bir 'With Skin' dosya (siluet-govde.fbx) gÃ¶vdeyi saglar,
+// digerlerinin animasyonlari ayni iskelet uzerinde calisir - butun Mixamo
+// klipleri ayni kemik adlarini kullaniyor.
+// idle DAHIL tum animasyonlar ayri klip dosyalarindan gelir.
+// Govde dosyasinin kendi animasyonuna GUVENME - Mixamo bazen bos klip veriyor
+// (Remy'de tam bu oldu: duration 0, hic track yok -> siluet T-pozunda kaldi).
+const KLIP_ADLARI = ['idle','idle-breathing','step-left','step-right','jump',
+                     'duck','dodge-right','punch','arms-up','jacks',
+                     // dans ve isinma repertuari - koreografide cesitlilik icin
+                     'jump-standing','side-to-side','twist-dance','charleston',
+                     'running-man','kick-step','shimmy','raise-roof',
+                     'arm-wave','arm-stretch','neck-roll'];
+const klipler = {};
+let siluet = null, mixer = null, kokKemik = null, kokBaslangic = null;
+
+const govde = await yukle('siluet-govde');
+if (govde) {
+  // Siluet artik SAHNENIN ICINDE degil, sag taraftaki KUTUNUN icinde.
+  // Kendi sahnesi ve kamerasi var; ayri render edilip 2B olarak panele
+  // cizilecek. Boylece kontur (dis hat) verilebiliyor - duz siyah govde
+  // kol/bacak birlesimlerinde tek kutle olup "eksik eklem" gibi goruunuyordu.
+  govde.scale.setScalar(0.0125);
+  govde.position.set(0, 0, 0);
+  govde.rotation.y = 0;
+
+  // maske icin BEYAZ - kontur ve dolgu 2B tarafta olusturulacak
+  govde.traverse(o => {
+    if (o.isMesh || o.isSkinnedMesh) {
+      o.material = new THREE.MeshBasicMaterial({ color: '#ffffff', fog:false });
+      o.frustumCulled = false;
+    }
+  });
+
+  sahneSiluet.add(govde);
+  siluet = govde;
+  mixer = new THREE.AnimationMixer(govde);
+  // kalca kemigi: klip oynatildiktan sonra yatay konumu buraya geri cekilir
+  govde.traverse(o => { if (o.isBone && /hips/i.test(o.name) && !kokKemik) kokKemik = o; });
+  if (kokKemik) kokBaslangic = kokKemik.position.clone();
+
+  for (const ad of KLIP_ADLARI) {
+    const o = await yukle(ad);
+    const k = o && o.animations[0];
+    if (k && k.tracks.length > 0) klipler[ad] = k;   // bos klipleri ele
+  }
+}
+
+// klipleri hedef sureye esnetip aksiyon olarak hazirla
+const aksiyon = {};
+// Hedef sureler tam sayi vurusa oturur -> hareket her zaman ritimde biter.
+// Bu "keskinlik" hissini veren sey: yarim vurusta biten hareket sunepe durur.
+// CUE'YA BAGLI klipler: hedef sure MUZIKAL olarak sabit. Bunlar bir vurusa
+// tepki veriyor, o yuzden bir/iki vurusta bitmek zorundalar. Hepsinin dogal
+// suresi zaten hedefe yakin (timeScale 0.63-1.25).
+const HEDEF_SABIT = { 'idle':OLCU, 'idle-breathing':OLCU*2,
+                      'step-left':VURUS*2, 'step-right':VURUS*2,
+                      'jacks':VURUS*2, 'jump':OLCU, 'duck':OLCU,
+                      'dodge-right':OLCU, 'punch':OLCU, 'arms-up':OLCU };
+// EGZERSIZ klipleri (charleston, running-man, shimmy...) blok boyunca dongude
+// oynuyor, bir vurusa tepki vermiyor. Onlarin hedefi klibin KENDI suresinden
+// turetiliyor: en yakin tam olcu.
+//
+// Onceki halde bu 11 klibin hedefi elle tahmin edilmisti ve dogal sureleri
+// olculmemisti. Sonuc felaketti: charleston 20,9 sn'lik bir klipti ve 2 sn'ye
+// sikistiriliyordu - 10,5 kat hiz. shimmy 12 kat. Hicbir hareket anlasilmiyordu.
+// Artik hesaplaniyor; timeScale 0,8-1,2 bandinda kaliyor.
+const HEDEF_SURE = {};
+function hedefSureHesapla(ad, sure){
+  if (HEDEF_SABIT[ad] !== undefined) return HEDEF_SABIT[ad];
+  return Math.max(1, Math.round(sure / OLCU)) * OLCU;
+}
+if (mixer) {
+  for (const [ad, klip] of Object.entries(klipler)) {
+    const hedef = hedefSureHesapla(ad, klip.duration);
+    HEDEF_SURE[ad] = hedef;
+    const a = mixer.clipAction(klip);
+    a.setLoop(THREE.LoopRepeat, Infinity);
+    a.timeScale = klip.duration / hedef;
+    aksiyon[ad] = { a, klip, hedef };
+  }
+}
+
+// ---------------------------------------------------------------- HUD
+const hud = document.createElement('canvas');
+hud.width = W; hud.height = H;
+const hx = hud.getContext('2d');
+
+// Giris zamanlari ILK NOTADAN turetilir - sabit saniye degil.
+// Boylece giris uzunlugu degisirse yazilar kendiliginden takip eder ve
+// GO! tam ilk notanin vurusunda soner.
+const ILK_NOTA = NOTALAR.length ? NOTALAR[0].t : 4.0;
+const T_READY = [ILK_NOTA - 3.65, ILK_NOTA - 1.45];
+const T_GO    = [ILK_NOTA - 1.00, ILK_NOTA + 0.20];
+
+// kilometre tasi ovgu sozleri (kendi setimiz)
+const OVGU = ['NICE!','KEEP GOING!','PERFECT!','ON FIRE!','AMAZING!','YOU GOT THIS!'];
+// yumusak, gozÃ¼ yormayan renkler - saf kirmizi/yesil yok
+const OVGU_RENK = ['#00e5ff','#ffb454','#ff6ad5','#25d9c2','#ffe066','#b18cff'];
+
+// Kademe esikleri tek yerde: hem rozet metni hem "ne zaman degisti" bundan.
+const KADEME = [
+  { esik: 200, s:'UNSTOPPABLE', r:'#ff2038' },
+  { esik: 120, s:'PERFECT',     r:'#ff2f8f' },
+  { esik:  60, s:'AWESOME',     r:'#ff9a1f' },
+  { esik:  25, s:'GREAT',       r:'#25d9c2' },
+  { esik:   1, s:'NICE',        r:'#22e0e8' },
+];
+// Kademenin BASLADIGI an. Duvar saati veya kare arasi durum yok - deger
+// dogrudan koreografiden turetiliyor, yani render deterministik kaliyor.
+function kademeBaslangic(combo){
+  for (const K of KADEME) if (combo >= K.esik) {
+    const n = NOTALAR.find(x => x.combo === K.esik);
+    return n ? n.t : 0;
+  }
+  return 0;
+}
+
+function hudCiz(t, combo, epic, kmCombo, seviye, duyuru, sonVurus){
+  hx.clearRect(0,0,W,H);
+  const k = W/1280;
+  // B temasinda parlak zeminde beyaz yazi okunmuyor. Her yazi once koyu
+  // konturla ciziliyor. A'da kontur zaten beyaz oldugu icin bu adim atlanir.
+  const yaz = (yazi, x, y) => hx.fillText(yazi, x, y);
+
+  // combo sayaci - ilk vurusa kadar gizli
+  if (combo > 0){
+    hx.textAlign = 'right';
+    hx.fillStyle = PALET.hud;
+    hx.font = `700 ${Math.round(124*k)}px Impact, Arial Black, sans-serif`;
+    hx.shadowColor = PALET.grid; hx.shadowBlur = 32*k;
+    if (TB) {
+      // rakamlari ayri bir tuvale ciz, centigi oy, sonra HUD'a bas
+      const cw = Math.ceil(hx.measureText(String(combo)).width) + 40*k;
+      const ch = Math.ceil(150*k);
+      const cc = document.createElement('canvas'); cc.width = cw; cc.height = ch;
+      const cg = cc.getContext('2d');
+      cg.font = hx.font; cg.textAlign = 'right'; cg.fillStyle = PALET.hud;
+      cg.shadowColor = PALET.grid; cg.shadowBlur = 32*k;
+      cg.fillText(String(combo), cw - 4*k, 118*k);
+      cg.shadowBlur = 0;
+      cg.globalCompositeOperation = 'destination-out';
+      cg.fillStyle = '#000';
+      cg.fillRect(0, 74*k, cw, Math.max(2, 5*k));   // yatay centik
+      // Her vurusta rakam kisa bir "tik" atar. Sayinin artmasi tek basina
+      // fark edilmiyor; hareket fark ediliyor.
+      const vdt = sonVurus >= 0 ? t - sonVurus : 9;
+      const tik = vdt < 0.18 ? 1 + 0.13 * Math.pow(1 - vdt / 0.18, 2) : 1;
+      hx.save();
+      hx.translate(W - 46*k, 122*k);
+      hx.scale(tik, tik);
+      hx.drawImage(cc, -(cw - 4*k), -118*k);
+      hx.restore();
+    } else {
+      yaz(String(combo), W - 46*k, 122*k);
+    }
+    hx.font = `700 ${Math.round(38*k)}px Arial Black, sans-serif`;
+    yaz('COMBO', W - 46*k, 164*k);
+
+    // --- KADEMELI DEGERLENDIRME ROZETI
+    // Referansta combo'nun altinda kalici, renk kodlu bir kutu var.
+    // Bizim ortadaki ovgu yazisi gosterisli ama anlik; bu surekli okunuyor.
+    const kademe = KADEME.find(K => combo >= K.esik) || KADEME[KADEME.length - 1];
+
+    // BOYUT: LEVEL 52 px, COMBO etiketi 38 px. Rozet ikisinin arasinda
+    // durmali - eskiden 30 px'di ve HUD'un en onemsiz ogesi gibi okunuyordu.
+    // HIZA: sag kenari combo rakami ve COMBO etiketiyle ayni dikeyde (W-46k),
+    // solda LEVEL ile ayni kenar boslugu.
+    hx.save();
+    hx.font = `700 ${Math.round(44*k)}px Arial Black, sans-serif`;
+    const gen = hx.measureText(kademe.s).width + 52*k, yuk = 72*k;
+    const rx = TB ? W - 46*k - gen : PX - 22*k - gen;
+    const ry = TB ? 186*k : 196*k;
+
+    // KADEME ATLAMA: yeni kademeye girildigi an rozet buyuyup yerine oturur
+    // ve bir kez beyaz cakar. Odul anini gorunur kilan sey bu; kalici kutu
+    // tek basina "bir sey kazandim" hissi vermiyor.
+    const kdt = t - kademeBaslangic(combo);
+    const patla = kdt >= 0 && kdt < 0.6 ? Math.pow(1 - kdt / 0.6, 2.0) : 0;
+    const olcek = 1 + 0.42 * patla;
+    hx.translate(rx + gen, ry + yuk / 2);      // sag kenardan olcekle
+    hx.scale(olcek, olcek);
+    hx.translate(-(rx + gen), -(ry + yuk / 2));
+
+    // Dolu renkli kutu + koyu yazi: ters kontrast, ayni alanda daha cok cikiyor
+    hx.shadowColor = kademe.r; hx.shadowBlur = (26 + 34 * patla) * k;
+    hx.fillStyle = kademe.r;
+    hx.beginPath(); hx.roundRect(rx, ry, gen, yuk, 12*k); hx.fill();
+    hx.shadowBlur = 0;
+    hx.lineWidth = 3.5*k; hx.strokeStyle = 'rgba(255,255,255,0.92)';
+    hx.beginPath(); hx.roundRect(rx, ry, gen, yuk, 12*k); hx.stroke();
+    hx.fillStyle = 'rgba(8,4,20,0.95)';
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    hx.fillText(kademe.s, rx + gen/2, ry + yuk/2 + 2*k);
+    if (patla > 0){                             // beyaz cakma
+      hx.globalAlpha = patla * 0.75;
+      hx.fillStyle = '#ffffff';
+      hx.beginPath(); hx.roundRect(rx, ry, gen, yuk, 12*k); hx.fill();
+      hx.globalAlpha = 1;
+    }
+    hx.restore();
+    hx.textAlign = 'right'; hx.textBaseline = 'alphabetic';
+  }
+
+  hx.textAlign = 'left';
+  hx.fillStyle = PALET.hud;
+  hx.shadowColor = PALET.grid;
+  hx.font = `700 ${Math.round(52*k)}px Arial Black, sans-serif`;
+  hx.shadowBlur = 24*k;
+  yaz('LEVEL ' + seviye, 46*k, 106*k);
+  // B'de seviyenin bir de ADI var: "NEW LEVEL" sozunu gorsel olarak
+  // karsilayan sey dunya degisimi; adini yazmak sozu somutlastiriyor.
+  if (TB && ORTAMLAR[0].ad){
+    const o = ORTAMLAR.filter(x => t / OLCU >= x.olcu).pop() || ORTAMLAR[0];
+    hx.font = `700 ${Math.round(26*k)}px Arial Black, sans-serif`;
+    yaz(o.ad, 48*k, 142*k);
+  }
+
+  // --- GIRIS: READY / GO!
+  const pop = (yazi, [t0,t1], renk, buyukluk) => {
+    if (t < t0 || t > t1) return;
+    const p = (t - t0) / (t1 - t0);
+    const olcek = p < 0.16 ? 0.55 + 0.45*(p/0.16)      // hizli buyume
+                : p > 0.82 ? 1 + (p-0.82)/0.18*0.35    // sonda hafif genisleyerek kaybol
+                : 1;
+    const alfa = p > 0.82 ? 1 - (p-0.82)/0.18 : 1;
+    hx.save();
+    hx.globalAlpha = alfa;
+    hx.translate(W/2, H*0.40);
+    // hiz cizgileri: merkezden disari acilan ince beyaz izler
+    hx.save();
+    hx.globalAlpha = alfa * 0.30 * (1 - p*0.5);
+    hx.strokeStyle = '#ffffff'; hx.lineWidth = 2.5*k;
+    for (let i = 0; i < 22; i++){
+      const a = (i / 22) * Math.PI * 2 + p * 0.25;
+      const i0 = 220*k + (i % 3) * 60*k, i1 = i0 + 130*k + (i % 4) * 70*k;
+      hx.beginPath();
+      hx.moveTo(Math.cos(a)*i0, Math.sin(a)*i0*0.55);
+      hx.lineTo(Math.cos(a)*i1, Math.sin(a)*i1*0.55);
+      hx.stroke();
+    }
+    hx.restore();
+    hx.scale(olcek, olcek);
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    hx.fillStyle = renk; hx.shadowColor = renk; hx.shadowBlur = 60*k;
+    hx.font = `700 ${Math.round(buyukluk*k)}px Impact, Arial Black, sans-serif`;
+    hx.fillText(yazi, 0, 0);
+    hx.lineWidth = 3*k; hx.strokeStyle = YAZI_KONTUR;
+    hx.strokeText(yazi, 0, 0);
+    hx.restore();
+  };
+  pop('READY', T_READY, '#00e5ff', 138);
+  pop('GO!',   T_GO,    '#ffe600', 176);
+
+  // --- SEVIYE DUYURUSU: ortam degisimi fark edilsin diye tam ekran
+  if (duyuru >= 0){
+    const p = duyuru / 2.4;
+    const olcek = p < 0.12 ? 0.45 + 0.55*(p/0.12)
+                : p > 0.72 ? 1 + (p-0.72)/0.28*0.30 : 1;
+    const alfa = p > 0.72 ? 1 - (p-0.72)/0.28 : 1;
+    hx.save();
+    hx.globalAlpha = alfa;
+    hx.translate(W/2, H*0.40);
+    // isin cizgileri
+    hx.save();
+    hx.globalAlpha = alfa * 0.35 * (1 - p*0.6);
+    hx.strokeStyle = '#ffffff'; hx.lineWidth = 3*k;
+    for (let i = 0; i < 26; i++){
+      const a = (i/26) * Math.PI * 2 - p * 0.4;
+      const i0 = 240*k + (i%3)*70*k, i1 = i0 + 170*k + (i%4)*80*k;
+      hx.beginPath();
+      hx.moveTo(Math.cos(a)*i0, Math.sin(a)*i0*0.5);
+      hx.lineTo(Math.cos(a)*i1, Math.sin(a)*i1*0.5);
+      hx.stroke();
+    }
+    hx.restore();
+    hx.scale(olcek, olcek);
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    hx.font = `700 ${Math.round(64*k)}px Arial Black, sans-serif`;
+    hx.fillStyle = '#ffffff'; hx.shadowColor = '#ffffff'; hx.shadowBlur = 40*k;
+    hx.fillText('LEVEL UP', 0, -74*k);
+    hx.font = `700 ${Math.round(176*k)}px Impact, Arial Black, sans-serif`;
+    hx.fillStyle = '#ffe066'; hx.shadowColor = '#ffe066'; hx.shadowBlur = 64*k;
+    hx.fillText(String(seviye), 0, 40*k);
+    hx.lineWidth = 4*k; hx.strokeStyle = YAZI_KONTUR;
+    hx.strokeText(String(seviye), 0, 40*k);
+    hx.restore();
+  }
+  hx.textBaseline = 'alphabetic';
+
+  // --- OVGU YAZISI: ekranin UST BANDINDAN iner
+  // Eskiden ufuk noktasindan dogup ekranin ortasina (H*0.40) buyuyerek
+  // geliyordu. Perspektif hissi guzeldi ama tam notalarin aktigi koridorun
+  // onune oturuyor ve yaklasan cue'yu kapatiyordu - oyunun okunmasi
+  // gosterisin onunde gelir. Artik ustten inip ust bantta duruyor.
+  const OV_GEL = 0.34, OV_TUT = 0.74, OV_SON = 0.44;
+  if (epic >= 0 && epic < OV_GEL + OV_TUT + OV_SON){
+    const sira = Math.max(0, Math.floor(kmCombo/8) - 1);
+    const yazi = OVGU[sira % OVGU.length];
+    const renk = OVGU_RENK[sira % OVGU_RENK.length];
+
+    const UST_Y = H * 0.155;        // durdugu yer: LEVEL ve COMBO ile ayni bant
+    const BAS_Y = -H * 0.10;        // dogdugu yer: ust kenarin disi
+    let ilerle, alfa, ek;
+    if (epic < OV_GEL){                       // hizli in
+      const q = epic / OV_GEL;
+      ilerle = 1 - Math.pow(1 - q, 3);        // sonda yumusayarak otur
+      alfa = Math.min(1, q * 4);
+      ek = 0;
+    } else if (epic < OV_GEL + OV_TUT){       // tut
+      ilerle = 1; alfa = 1; ek = 0;
+    } else {                                  // hafifce yukari suzul ve kaybol
+      const q = (epic - OV_GEL - OV_TUT) / OV_SON;
+      ilerle = 1; alfa = 1 - q; ek = -q * H * 0.035;
+    }
+    const olcek = 0.62 + 0.38 * ilerle;       // inerken buyur
+    const cx = W / 2;
+    const cy = BAS_Y + (UST_Y - BAS_Y) * ilerle + ek;
+
+    hx.save();
+    hx.globalAlpha = alfa;
+    hx.translate(cx, cy);
+    hx.scale(olcek, olcek);
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    // Ust bantta solda LEVEL, sagda COMBO + rozet var. Yazi ikisinin arasina
+    // sigmali; sigmiyorsa punto kucululur. Sabit punto birakilirsa
+    // "YOU GOT THIS!" gibi uzun ovguler ikisinin de uzerine biniyor.
+    let punto = 104;
+    hx.font = `700 ${Math.round(punto*k)}px Impact, Arial Black, sans-serif`;
+    const enGenis = W * 0.50;
+    const olculen = hx.measureText(yazi).width * olcek;
+    if (olculen > enGenis) {
+      punto = Math.max(52, punto * enGenis / olculen);
+      hx.font = `700 ${Math.round(punto*k)}px Impact, Arial Black, sans-serif`;
+    }
+    hx.fillStyle = renk; hx.shadowColor = renk; hx.shadowBlur = 52*k;
+    hx.fillText(yazi, 0, 0);
+    hx.lineWidth = 3*k; hx.strokeStyle = YAZI_KONTUR;
+    hx.strokeText(yazi, 0, 0);
+    hx.restore();
+  }
+  // --- FINAL KARTI: abone cagrisi
+  // Referansta var, bizde yoktu - kacirilmis bir yer.
+  const SON = TOPLAM_OLCU * OLCU;
+  if (t >= SON - 4.2){
+    const p = Math.min(1, (t - (SON - 4.2)) / 4.2);
+    const giris = Math.min(1, p / 0.10);
+    hx.save();
+    hx.globalAlpha = giris * 0.88;
+    hx.fillStyle = '#050110';
+    hx.fillRect(0, 0, W, H);                       // ekrani karart
+    hx.globalAlpha = giris;
+    hx.translate(W/2, H*0.46);
+    hx.save();
+    hx.globalAlpha = giris * 0.30;
+    hx.strokeStyle = '#ffffff'; hx.lineWidth = 3*k;
+    for (let i = 0; i < 30; i++){
+      const a = (i/30) * Math.PI * 2 + p * 0.3;
+      const i0 = 200*k, i1 = i0 + 320*k + (i % 5) * 90*k;
+      hx.beginPath();
+      hx.moveTo(Math.cos(a)*i0, Math.sin(a)*i0*0.55);
+      hx.lineTo(Math.cos(a)*i1, Math.sin(a)*i1*0.55);
+      hx.stroke();
+    }
+    hx.restore();
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    hx.fillStyle = '#ffffff'; hx.shadowColor = '#00e5ff'; hx.shadowBlur = 40*k;
+    hx.font = `700 ${Math.round(72*k)}px Arial Black, sans-serif`;
+    hx.fillText('THANKS FOR WATCHING', 0, -60*k);
+    hx.fillStyle = '#ffe066'; hx.shadowColor = '#ffe066'; hx.shadowBlur = 54*k;
+    hx.font = `700 ${Math.round(112*k)}px Impact, Arial Black, sans-serif`;
+    hx.fillText('SUBSCRIBE', 0, 46*k);
+    hx.font = `700 ${Math.round(34*k)}px Arial, sans-serif`;
+    hx.fillStyle = '#ffffff'; hx.shadowBlur = 20*k;
+    hx.fillText('for the next level', 0, 128*k);
+    hx.restore();
+  }
+
+  hx.textBaseline = 'alphabetic';
+  hx.shadowBlur = 0;
+}
+
+// ------------------------------------------------------- KARE KURULUMU
+const birlesik = document.createElement('canvas');
+birlesik.width = W; birlesik.height = H;
+const bx = birlesik.getContext('2d');
+
+// B'nin son doygunluk pasi icin ara tuval (canvas kendi uzerine filtreli
+// cizilemiyor, ara kopya sart)
+const araCv = TB ? document.createElement('canvas') : null;
+if (araCv) { araCv.width = W; araCv.height = H; }
+const ax = araCv ? araCv.getContext('2d') : null;
+
+// --- siluet paneli
+const PW = Math.round(PANEL.g * W), PH = Math.round(PANEL.h * H);
+const PX = TB ? Math.round(PANEL.kenar * W)
+              : W - PW - Math.round(PANEL.kenar * W);
+const PY = Math.round(PANEL.y * H);
+kameraSiluet.aspect = PW / PH; kameraSiluet.updateProjectionMatrix();
+
+const maskeCv = document.createElement('canvas'); maskeCv.width = PW; maskeCv.height = PH;
+const mx = maskeCv.getContext('2d');
+const icCv   = document.createElement('canvas'); icCv.width = PW; icCv.height = PH;
+const ix = icCv.getContext('2d');
+
+/** Sag taraftaki kutu: koyu zemin, acik kenarlik, icinde konturlu siluet. */
+function siluetPaneliCiz(renk){
+  const r = Math.round(0.012 * W);
+
+  // kutu
+  bx.save();
+  bx.shadowColor = renk; bx.shadowBlur = 0.022 * W;
+  bx.fillStyle = 'rgba(4,2,14,1)';   // tam opak: arkadaki lazer/sehir sizmasin
+  bx.beginPath(); bx.roundRect(PX, PY, PW, PH, r); bx.fill();
+  bx.shadowBlur = 0;
+  bx.lineWidth = Math.max(2, 0.0026 * W);
+  bx.strokeStyle = 'rgba(235,240,255,0.92)';
+  bx.beginPath(); bx.roundRect(PX, PY, PW, PH, r); bx.stroke();
+  bx.restore();
+
+  if (!siluet) return;
+
+  // ic dolgu icin maskenin siyah kopyasi
+  ix.clearRect(0, 0, PW, PH);
+  ix.globalCompositeOperation = 'source-over';
+  ix.drawImage(maskeCv, 0, 0);
+  ix.globalCompositeOperation = 'source-in';
+  ix.fillStyle = '#050110';
+  ix.fillRect(0, 0, PW, PH);
+  ix.globalCompositeOperation = 'source-over';
+
+  bx.save();
+  bx.beginPath(); bx.roundRect(PX + 2, PY + 2, PW - 4, PH - 4, r); bx.clip();
+
+  // yumusak dis parlama
+  bx.globalAlpha = 0.55;
+  bx.filter = `blur(${Math.round(0.007 * W)}px)`;
+  bx.drawImage(maskeCv, PX, PY);
+  bx.filter = 'none';
+
+  // KONTUR: maskeyi 8 yone kaydirip beyaz cizmek dis hat verir
+  const k = Math.max(1.5, 0.0026 * W);
+  bx.globalAlpha = 1;
+  for (let a = 0; a < 8; a++){
+    const t = a * Math.PI / 4;
+    bx.drawImage(maskeCv, PX + Math.cos(t) * k, PY + Math.sin(t) * k);
+  }
+  // ic dolgu ustte -> geriye ince beyaz hat kalir
+  bx.drawImage(icCv, PX, PY);
+  bx.restore();
+  bx.globalAlpha = 1;
+}
+
+function kareKur(n){
+  const t = n / FPS;                       // DETERMINISTIK: duvar saati yok
+
+  // zemin akisi - mod 1 icinde kalir, hicbir sayi buyumez
+  const hiz = (Z_VURUS - Z_DOGUM) / YAKLASMA;   // birim/sn
+  zeminMat.uniforms.uKaydir.value = (t * hiz / 220 * 40) % 1;
+  // yol ust yuzeyi de akar - notayla ayni hizda, ayni yonde
+  if (yolUstMat) yolUstMat.map.offset.y = (-t * hiz / (220 / 34)) % 1;
+
+  // --- ORTAM: hangi bolumdeyiz, gecis ne kadar ilerledi
+  const suOlcu = t / OLCU;
+  let ix = 0;
+  for (let i = 0; i < ORTAMLAR.length; i++) if (suOlcu >= ORTAMLAR[i].olcu) ix = i;
+  const O1 = ORTAMLAR[ix], O0 = ORTAMLAR[Math.max(0, ix - 1)];
+  const gecis = ix === 0 ? 1
+    : THREE.MathUtils.clamp((suOlcu - O1.olcu) / GECIS_OLCU, 0, 1);
+  const yumusak = gecis * gecis * (3 - 2 * gecis);        // smoothstep
+
+  const karistir = (a, b) => new THREE.Color(a).lerp(new THREE.Color(b), yumusak);
+  zeminMat.uniforms.uGrid .value.copy(karistir(O0.grid[0], O1.grid[0]));
+  zeminMat.uniforms.uGrid2.value.copy(karistir(O0.grid[1], O1.grid[1]));
+  zeminMat.uniforms.uGrid3.value.copy(karistir(O0.grid[2], O1.grid[2]));
+  if (ufuk) ufuk.material.color.copy(karistir(O0.ufuk, O1.ufuk));
+  // Gokyuzu de ortamla degisir. A'da dort ortamin da gogu ayni koyu renk,
+  // yani A icin bu satirlar gorunur bir sey degistirmez.
+  const gok = karistir(O0.gok, O1.gok);
+  scene.background.copy(gok);
+  scene.fog.color.copy(gok);
+  zeminMat.uniforms.uSis.value.copy(gok);
+
+  // gecis aninda beyaz cakma + tam ekran seviye duyurusu
+  const gecisT = t - O1.olcu * OLCU;                 // gecis basindan gecen sure
+  const cakma = (ix > 0 && gecis < 0.5) ? Math.pow(1 - gecis / 0.5, 1.6) : 0;
+  const duyuru = (ix > 0 && gecisT >= 0 && gecisT < 2.4) ? gecisT : -1;
+
+  // --- dolgu katmanlari
+  // olcu nabzi: her olcu basinda sahne nefes alir
+  const olcuIci = t % OLCU;
+  const nabizOlcu = Math.max(0, 1 - olcuIci / 0.30);
+
+  // sutunlar: mod ile dolasirlar, koordinat asla buyumez
+  // Ortam degisiminde GEOMETRI de degisiyor - sadece renk degil.
+  // Referansta koridorun bicimi tamamen degisiyor; sadece palet
+  // degistirmek fark ettirmiyordu.
+  const ara   = O0.ara   + (O1.ara   - O0.ara)   * yumusak;
+  const kOlc  = O0.olcek + (O1.olcek - O0.olcek) * yumusak;
+  const kapsam = ara * SUTUN_SAY;
+  for (const s of sutunlar) {
+    const { i } = s.userData;
+    s.position.z = Z_VURUS + 4 - kapsam + ((i * ara + t * HIZ) % kapsam);
+    // kameraya cok yaklasan kemer kareyi basiyor - yakinda sondur
+    const yakinSonme = THREE.MathUtils.smoothstep(camera.position.z - s.position.z, 1.5, 7);
+    s.material.opacity = (TB ? 0.12 + 0.10 * nabizOlcu
+                             : 0.52 + 0.40 * nabizOlcu) * yakinSonme;
+    // BICIM degisimi: doku beyaz cakmanin ortasinda takas edilir, gozukmez
+    const dk = window.__KEMER_DOKULARI;
+    if (dk) {
+      const bic = (yumusak > 0.5 ? O1.bicim : O0.bicim) || (TB ? 'kemer' : 'yuvarlak');
+      if (dk[bic] && s.material.map !== dk[bic]) { s.material.map = dk[bic]; s.material.needsUpdate = true; }
+    }
+    // RENK AKISI: kemer tunelin sonuna varip basa dondugunde siradaki rengi
+    // alir; renkler koridor boyunca akar. Ani sicrama olmaz cunku renk,
+    // kemer sisin icindeyken degisiyor.
+    const donus = Math.floor((i * ara + t * HIZ) / kapsam);
+    const ci = (i + donus) % 5;
+    s.material.color.copy(karistir(
+      O0.kemer[ci % O0.kemer.length], O1.kemer[ci % O1.kemer.length]));
+    // YAVAS DONUS: tam tur 32 olcude (64 sn). Olcu izgarasina bagli
+    // oldugu icin deterministik ve muzikle uyumlu. Her kemere indeksten
+    // gelen sabit bir faz farki verilir -> koridor boyunca spiral etkisi.
+    // A'da kemer KAPALI bir cokgen; yavas donmesi spiral etkisi veriyor.
+    // B'de sekiller ACIK (kemer, tonoz): donunce kemer olarak degil savrulan
+    // serit olarak okunuyor ve mekan hissi tamamen kayboluyor. B'de donus yok.
+    s.rotation.z = TB ? 0
+      : (t / (32 * OLCU)) * Math.PI * 2 + i * (Math.PI * 2 / SUTUN_SAY) * 0.22;
+    const p = kOlc * (TB ? 0.82 : 1) * (1 + nabizOlcu * 0.035);
+    // en/boy ayri: halka yuvarlak, tonoz yuksek, kemer genis olmali
+    const en  = (O0.en  ?? 1) + ((O1.en  ?? 1) - (O0.en  ?? 1)) * yumusak;
+    const boy = (O0.boy ?? 1) + ((O1.boy ?? 1) - (O0.boy ?? 1)) * yumusak;
+    const yer = (O0.yer ?? 5.3) + ((O1.yer ?? 5.3) - (O0.yer ?? 5.3)) * yumusak;
+    s.scale.set(p * en, p * boy, 1);
+    s.position.y = yer;
+  }
+  // lazerler: tunelle ayni yonde akar, vurusta parlar
+  for (const l of lazerler) {
+    const d = l.userData;
+    l.position.z = Z_VURUS + 6 - d.kapsam + ((d.i * d.ara + t * HIZ * 0.75) % d.kapsam);
+    const vurusIci = t % VURUS;
+    l.material.opacity = 0.09 + 0.16 * Math.max(0, 1 - vurusIci / 0.22);
+  }
+
+  // yol dalgalari: her olcu basinda vurus cizgisinden disari yayilir
+  dalgalar.forEach((dg, i) => {
+    const faz = (t / OLCU + i / dalgalar.length) % 1;
+    dg.scale.setScalar(0.6 + faz * 6.5);
+    dg.material.opacity = 0.30 * (1 - faz) * (1 - faz);
+    dg.material.color.copy(karistir(O0.grid[i % 3], O1.grid[i % 3]));
+  });
+
+  // yan dekor: tunelle ayni yonde akar. Doku takasi beyaz cakmanin
+  // ortasinda oluyor (kemer bicimiyle ayni numara), o yuzden gozukmuyor.
+  const dekorTip = (yumusak > 0.5 ? O1.dekor : O0.dekor) || 'sehir';
+  const dk = window.__DEKOR;
+  for (const b of binalar) {
+    const d = b.userData, kap = d.ara * d.say;
+    b.position.z = Z_VURUS + 6 - kap + ((d.i * d.ara + t * HIZ) % kap);
+    if (dekorTip === 'yok') { b.visible = false; continue; }
+    b.visible = true;
+    if (dk && dk[dekorTip]) {
+      const yeni = dk[dekorTip][d.di];
+      if (b.material.map !== yeni) { b.material.map = yeni; b.material.needsUpdate = true; }
+    }
+  }
+
+  // parcaciklar: tunel hiziyla akar, mod ile dolasir
+  for (const p of parcaciklar) {
+    const d = p.userData;
+    p.position.set(d.x, d.y,
+      Z_VURUS + 6 - d.kapsam + ((d.z0 + t * HIZ * d.hiz) % d.kapsam));
+    p.rotation.z = d.don + t * (0.5 + d.hiz);
+    p.material.opacity = (TB ? 0.09 + 0.15 * nabizOlcu : 0.18 + 0.30 * nabizOlcu) * d.olcek;
+    // B'de konfeti tek renk degil: her parcacik paletten kendi rengini alir.
+    p.material.color.copy(TB
+      ? karistir(O0.kemer[d.ci % O0.kemer.length], O1.kemer[d.ci % O1.kemer.length])
+      : karistir(O0.kemer[0], O1.kemer[0]));
+  }
+
+  if (ufuk) ufuk.material.opacity = (TB ? 0.26 : 0.62) + (TB ? 0.16 : 0.38) * nabizOlcu;
+  if (gunes) gunes.material.opacity = (TB ? 0.16 : 0.50) + 0.14 * nabizOlcu;
+
+  // giris nabzi: ilk nota gelene kadar vurus cizgisi her vurusta parlar
+  if (t < ILK_NOTA){
+    const vurusIci = t % VURUS;
+    const nabiz = Math.max(0, 1 - vurusIci / 0.16);
+    vurusCizgi.material.opacity = 0.42 + 0.58 * nabiz;
+    vurusCizgi.scale.set(1, 1 + nabiz * 0.9, 1);
+  } else {
+    vurusCizgi.material.opacity = 1;
+    vurusCizgi.scale.set(1, 1, 1);
+  }
+
+  // notalar
+  let combo = 0, sonVurus = -99, sonKm = -99, kmCombo = 0;
+  NOTALAR.forEach((no, i) => {
+    const m = notaMesh[i];
+    const ilerleme = (t - (no.t - YAKLASMA)) / YAKLASMA;
+    if (ilerleme < 0 || ilerleme > 1.04) { m.visible = false; }
+    else {
+      m.visible = true;
+      m.position.set(LANE_X[no.lane], TB ? 0.18 : 0.06,
+        Z_DOGUM + (Z_VURUS - Z_DOGUM) * ilerleme);
+      const sonme = ilerleme > 1 ? 1 - (ilerleme-1)/0.04 : 1;
+      const op = TB ? (0.70 + 0.30 * Math.min(1, ilerleme*2.6)) * sonme
+                    : 0.35 + 0.65 * Math.min(1, ilerleme*1.6) * sonme;
+      if (m.userData.mats) m.userData.mats.forEach(x => x.opacity = op);
+      else m.material.opacity = op;
+    }
+    if (TB) {
+      const km = kartMesh[i];
+      if (ilerleme < 0 || ilerleme > 0.62) km.visible = false;
+      else {
+        km.visible = true;
+        const z = Z_DOGUM + (Z_VURUS - Z_DOGUM) * ilerleme;
+        km.position.set(LANE_X[no.lane] * 0.55, 2.35, z);
+        // devir teslim: 0.42'den sonra sonuyor, blok devraliyor
+        km.material.opacity = ilerleme < 0.10 ? ilerleme / 0.10
+                            : ilerleme > 0.42 ? Math.max(0, 1 - (ilerleme - 0.42) / 0.20)
+                            : 1;
+      }
+    }
+    if (t >= no.t) { combo = no.combo; sonVurus = no.t; }
+    if (t >= no.t && no.combo % 8 === 0) { sonKm = no.t; kmCombo = no.combo; }
+  });
+
+  // vurus halkasi
+  const dt = t - sonVurus;
+  if (dt >= 0 && dt < 0.30){
+    const k = dt/0.30;
+    const no = NOTALAR.find(x => x.t === sonVurus);
+    halka.visible = true;
+    halka.position.set(no ? LANE_X[no.lane] : 0, 0.07, Z_VURUS);
+    halka.scale.setScalar(0.55 + k*1.9);
+    halka.material.opacity = (1 - k) * (1 - k);
+  } else halka.visible = false;
+
+  // siluet: aktif cue varsa onun klibi, yoksa idle
+  if (mixer){
+    // Blogun egzersizi, olcu izgarasina kilitli olarak dongude oynar.
+    const suO = t / OLCU;
+    const blok = BLOKLAR.find(b => suO >= b[0] && suO < b[1]) || BLOKLAR[BLOKLAR.length-1];
+    const hareket = blok[3] || 'idle';
+    let ad, yerel;
+
+    if (hareket === 'adim') {
+      // yana adim: her yarim olcude yon degisir - gercek bir egzersiz gibi
+      const yariNo = Math.floor(t / (OLCU / 2));
+      ad = (yariNo % 2) ? 'step-right' : 'step-left';
+      yerel = t % (OLCU / 2);
+    } else if (hareket === 'nefes') {
+      ad = aksiyon['idle-breathing'] ? 'idle-breathing' : 'idle';
+      yerel = t % (HEDEF_SURE[ad] || OLCU);
+    } else {
+      ad = aksiyon[hareket] ? hareket : 'idle';
+      yerel = t % (HEDEF_SURE[ad] || OLCU);
+    }
+    for (const [k,v] of Object.entries(aksiyon)) v.a.enabled = (k === ad);
+    const A = aksiyon[ad];
+    if (A){
+      A.a.play();
+      // MUTLAK zaman - update(delta) DEGIL. Birikme yok, kayma yok.
+      mixer.setTime(0);
+      A.a.time = (yerel % A.hedef) * A.a.timeScale;
+      mixer.update(0);
+      // root motion kilidi - poz korunur, yer degistirme silinir
+      if (kokKemik && kokBaslangic) {
+        kokKemik.position.x = kokBaslangic.x;
+        kokKemik.position.z = kokBaslangic.z;
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
+
+  // 3B -> 2B kopyala, HUD ustune yaz
+  bx.filter = 'none';
+  bx.globalCompositeOperation = 'source-over';
+  bx.globalAlpha = 1;
+  bx.drawImage(canvas, 0, 0);
+
+  // UCUZ BLOOM: ayni kareyi bulaniklastirip toplayarak ekle.
+  // Gercek cok gecisli bloom pahali; bu tek cizimle neon parlamasini veriyor.
+  bx.save();
+  bx.globalCompositeOperation = 'lighter';
+  if (BLOOM_ACIK) {
+    bx.globalAlpha = TB ? 0.17 : 0.50;
+    bx.filter = TB ? 'blur(10px)' : 'blur(14px)';
+    bx.drawImage(canvas, 0, 0);
+    // genis bulaniklik parlak zemini siluetin uzerine tasiyip onu saydam
+    // gosteriyordu - dusuk tutuluyor
+    bx.globalAlpha = TB ? 0.05 : 0.13;
+    bx.filter = 'blur(38px)';
+    bx.drawImage(canvas, 0, 0);
+  }
+  bx.restore();
+  bx.filter = 'none';
+
+  // --- ON PLAN CERCEVESI
+  // Sahnenin ONUNDE duran grafik katman. Kareyi "oyun arayuzu" gibi
+  // gosteriyor ve kenar boslugunu kapatiyor. Bicimi ortamla degisiyor.
+  {
+    const ins = 0.026 * W, r = 0.05 * W;
+    const x0 = ins, y0 = ins, x1 = W - ins, y1 = H - ins;
+    const bic = (yumusak > 0.5 ? O1.bicim : O0.bicim) || 'yuvarlak';
+    bx.save();
+    // B'de 'lighter' parlak zeminde hicbir sey gostermez - normal cizim,
+    // koyu golge ve daha kalin hat gerekiyor.
+    bx.globalCompositeOperation = 'lighter';
+    bx.globalAlpha = (TB ? 0.16 : 0.30) + (TB ? 0.10 : 0.22) * nabizOlcu;
+    bx.strokeStyle = '#' + karistir(O0.kemer[0], O1.kemer[0]).getHexString();
+    bx.shadowColor = bx.strokeStyle; bx.shadowBlur = 0.020 * W;
+    bx.lineWidth = 0.0055 * W;
+    bx.beginPath();
+    if (bic === 'altigen' || bic === 'elmas') {
+      const k = 0.10 * W;
+      bx.moveTo(x0+k, y0);  bx.lineTo(x1-k, y0); bx.lineTo(x1, (y0+y1)/2);
+      bx.lineTo(x1-k, y1);  bx.lineTo(x0+k, y1); bx.lineTo(x0, (y0+y1)/2);
+      bx.closePath();
+    } else if (bic === 'keskin' || bic === 'tonoz') {
+      bx.rect(x0, y0, x1-x0, y1-y0);
+    } else if (bic === 'ikiz' || bic === 'halka') {
+      bx.rect(x0, y0, x1-x0, y1-y0);
+      bx.rect(x0+r*0.5, y0+r*0.5, x1-x0-r, y1-y0-r);
+    } else {
+      bx.roundRect(x0, y0, x1-x0, y1-y0, r);
+    }
+    bx.stroke();
+    bx.restore();
+    bx.globalAlpha = 1;
+    bx.globalCompositeOperation = 'source-over';
+  }
+
+  // --- SILUET GECISI: kendi sahnesi, saydam arka planla, kosede kucuk
+  //     bir alana render edilir; sonra 2B tarafta panele cizilir.
+  if (siluet) {
+    renderer.setScissorTest(true);
+    renderer.setViewport(0, 0, PW, PH);
+    renderer.setScissor(0, 0, PW, PH);
+    renderer.setClearAlpha(0);
+    renderer.render(sahneSiluet, kameraSiluet);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, W, H);
+    renderer.setClearAlpha(1);
+    // GL viewport sol-ALT baslar, 2B sol-UST -> y cevrilir
+    mx.clearRect(0, 0, PW, PH);
+    mx.drawImage(canvas, 0, H - PH, PW, PH, 0, 0, PW, PH);
+  }
+  siluetPaneliCiz(O1.grid[0]);
+  hudCiz(t, combo, sonKm > -90 ? t - sonKm : -1, kmCombo, O1.seviye, duyuru, sonVurus);
+
+  // ortam gecisinde beyaz cakma
+  if (cakma > 0){
+    bx.save();
+    bx.globalCompositeOperation = 'lighter';
+    bx.globalAlpha = cakma * 0.80;
+    bx.fillStyle = '#ffffff';
+    bx.fillRect(0, 0, W, H);
+    bx.restore();
+  }
+  bx.drawImage(hud, 0, 0);
+
+  // --- SON PAS (sadece B): siyahi dibe bastir
+  // Olcum: referansta medyan luma 0.084, piksellerin %39'u siyah; bizde
+  // 0.173 / %13 kalmisti. Tek tek katmanlari kismak yerine son karede
+  // seviye duzeltmesi yapmak hem daha kontrollu hem tek yerde duruyor.
+  // contrast siyahi asagi ceker, brightness genel seviyeyi indirir;
+  // parlak neon hatlar ayakta kalir.
+  if (TB && PAS_ACIK) {
+    ax.clearRect(0, 0, W, H);
+    ax.drawImage(birlesik, 0, 0);
+    bx.clearRect(0, 0, W, H);
+    bx.filter = 'brightness(0.88) contrast(1.16)';
+    bx.drawImage(araCv, 0, 0);
+    bx.filter = 'none';
+  }
+}
+
+// disariya ac
+window.SURE_OLCU = TOPLAM_OLCU;
+window.TOPLAM_KARE = Math.round(TOPLAM_OLCU * OLCU * FPS);
+window.kareKur = kareKur;
+// CIKIS TUVALI - opak.
+// birlesik tuvalin ~%10'u saydam kaliyor (siluet gecisi clearAlpha(0) ile
+// render ediliyor). PNG alfayi tasiyor, JPEG tasimiyor; format degistirince
+// goruntu de degisiyordu. Cikis once SIYAH zemine bindiriliyor, boylece
+// format secimi goruntuyu etkilemiyor.
+const cikisCv = document.createElement('canvas');
+cikisCv.width = W; cikisCv.height = H;
+const cikisCtx = cikisCv.getContext('2d', { alpha: false });
+window.__CIKIS = cikisCv;
+window.kareAl = (bicim, kalite) => {
+  cikisCtx.fillStyle = '#000000';
+  cikisCtx.fillRect(0, 0, W, H);
+  cikisCtx.drawImage(birlesik, 0, 0);
+  // KARE BICIMI - olculdu (03-motor/olc-hiz.js, olc-jpeg.js), 1920x1080:
+  //   png        ~2450 ms   kayipsiz
+  //   webp q1.0  ~2450 ms   kayipsiz (PNG ile bit bit ayni)
+  //   jpeg q1.0     64 ms   PSNR 51,9 dB - en buyuk piksel farki 5/255
+  //   jpeg q0.99    32 ms   PSNR 39,1 dB - en buyuk fark 121  (krominans
+  //                         altorneklemesi aciliyor, neon kenarlar bozuluyor)
+  // Kodlama render suresinin %98'ini yiyordu (sahnenin kendisi 33 ms).
+  // jpeg KALITE 1.0 varsayilan: 4:4:4 krominans, gorunmez kayip, 38 kat hizli.
+  // Kayipsiz gerekirse --bicim webp veya png.
+  // SONUC: bicim secimi hizi DEGISTIRMIYOR. WebGL komutlari asenkron;
+  // toDataURL sadece bekleyen rasterlestirmeyi bekletiyor, o yuzden kodlama
+  // pahali gorunuyordu. Gercek maliyet SwiftShader'in yazilimla cizmesi.
+  // Bu yuzden KAYIPSIZ kaliniyor. webp q1.0 = png ile bit bit ayni ama
+  // boru uzerinden yarisi kadar veri tasiyor (995 KB / 2056 KB base64).
+  if (bicim === 'png')  return cikisCv.toDataURL('image/png');
+  if (bicim === 'jpeg') return cikisCv.toDataURL('image/jpeg', kalite || 1);
+  return cikisCv.toDataURL('image/webp', kalite || 1);
+};
+window.__T = { THREE, scene, camera, siluet, notaMesh, NOTALAR, halka, mixer, aksiyon };
+window.HAZIR = true;
+window.SILUET_VAR = !!siluet;
+window.insanSimge = insanSimge;   // simge sayfasi uretmek icin
+
+// Kapak icin tek siluet karesi: saydam arka plan, konturlu, istenen olcude.
+// Videodaki panelden bagimsiz - kapakta siluet ekranin ortasinda ve buyuk
+// duruyor, panelin kucuk kutusuyla ayni goruntu ise yaramiyor.
+window.siluetKaresi = function(klipAdi, faz, gen, yuk){
+  if (!siluet || !mixer) return null;
+  const ad = aksiyon[klipAdi] ? klipAdi : 'idle';
+  for (const [k, v] of Object.entries(aksiyon)) v.a.enabled = (k === ad);
+  const A = aksiyon[ad];
+  A.a.play();
+  mixer.setTime(0);
+  A.a.time = (faz % 1) * A.hedef * A.a.timeScale;
+  mixer.update(0);
+  if (kokKemik && kokBaslangic) {
+    kokKemik.position.x = kokBaslangic.x;
+    kokKemik.position.z = kokBaslangic.z;
+  }
+
+  // siluet sahnesini istenen olcude, saydam zeminle render et
+  const kam = kameraSiluet.clone();
+  kam.aspect = gen / yuk; kam.updateProjectionMatrix();
+  renderer.setSize(gen, yuk, false);
+  renderer.setViewport(0, 0, gen, yuk);
+  renderer.setScissorTest(false);
+  renderer.setClearAlpha(0);
+  renderer.render(sahneSiluet, kam);
+
+  // maske: beyaz figur, saydam zemin
+  const mc = document.createElement('canvas'); mc.width = gen; mc.height = yuk;
+  const mg = mc.getContext('2d');
+  mg.drawImage(canvas, 0, 0, gen, yuk, 0, 0, gen, yuk);
+
+  // sonuc: dis parlama -> beyaz kontur -> koyu govde
+  const oc = document.createElement('canvas'); oc.width = gen; oc.height = yuk;
+  const og = oc.getContext('2d');
+  og.globalAlpha = 0.55;
+  og.filter = `blur(${Math.round(gen * 0.012)}px)`;
+  og.drawImage(mc, 0, 0);
+  og.filter = 'none'; og.globalAlpha = 1;
+  const k = Math.max(2, gen * 0.006);              // kontur kalinligi
+  for (let i = 0; i < 16; i++) {
+    const t = i * Math.PI / 8;
+    og.drawImage(mc, Math.cos(t) * k, Math.sin(t) * k);
+  }
+  const ic = document.createElement('canvas'); ic.width = gen; ic.height = yuk;
+  const ig = ic.getContext('2d');
+  ig.drawImage(mc, 0, 0);
+  ig.globalCompositeOperation = 'source-in';
+  ig.fillStyle = '#050110'; ig.fillRect(0, 0, gen, yuk);
+  og.drawImage(ic, 0, 0);
+
+  // renderer'i eski haline dondur
+  renderer.setSize(W, H, false);
+  renderer.setViewport(0, 0, W, H);
+  renderer.setClearAlpha(1);
+  return oc.toDataURL('image/png');
+};
+window.TEMA = TEMA;
+window.KLIP_SAYISI = Object.keys(klipler).length;
+window.NOTA_SAYISI = NOTALAR.length;
+</script>

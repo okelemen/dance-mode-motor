@@ -1,0 +1,88 @@
+{
+  "_aciklama": "Bir bolumun nasil yazildigini gosteren ornek. Yeni bolum = bu dosyanin kopyasi + degisiklikler. Koreografi zamanda degil OLCU NUMARASINDA yazilir.",
+
+  "meta": {
+    "bolum_no": 1,
+    "baslik": "DANCE MODE #1 | Interactive Immersive Warm Up | Full Body",
+    "biyom": "neon-grid",
+    "mekanik": "temel",
+    "_mekanik_not": "Her bolum ileri cue tiplerinden YALNIZCA birini tanitir. 1. bolumde ileri tip yok, temeller ogretiliyor."
+  },
+
+  "muzik": {
+    "dosya": "01-muzik/bolum-01-neon-grid.wav",
+    "olculen_bpm": null,
+    "_olculen_bpm_not": "Suno'dan gelen ham BPM buraya yazilir. Sonra tam 120.000'e esnetilir, duzeltilmis dosya ayni klasore -120bpm ekiyle kaydedilir.",
+    "ilk_vurus_offset_sn": null,
+    "_offset_not": "Ilk vurus t=0'a gelecek sekilde kirpilir. Kirpma sonrasi bu deger 0 olur."
+  },
+
+  "palet": {
+    "_not": "Biyom kimligi. Her bolumde degisir - tekrar riskine karsi ana savunma.",
+    "zemin": "#0a0118",
+    "grid": "#ff2fd0",
+    "lane_0": "#00e5ff",
+    "lane_1": "#b14aff",
+    "lane_2": "#ffe600",
+    "vurus_cizgisi": "#ffffff",
+    "siluet": "#000000",
+    "siluet_rim": "#00e5ff",
+    "hud": "#ffffff",
+    "vurgu": "#ff2fd0"
+  },
+
+  "koreografi": {
+    "_aciklama": "Kalip (pattern) + olcu araligi. 264 olcuyu tek tek yazmiyoruz. Kaliplar 'kaliplar' bolumunde tanimli, burada araliklara uygulaniyor.",
+    "_okuma": "olcu araligi [baslangic, bitis) - bitis dahil degil.",
+
+    "bloklar": [
+      { "olcu": [0, 8],     "kalip": "bos",          "not": "Sessiz giris, tunel tanitimi" },
+      { "olcu": [8, 16],    "kalip": "ogret_adim",   "not": "Sol/sag adim ogretilir" },
+      { "olcu": [16, 24],   "kalip": "ogret_ziplama","not": "Ziplama ogretilir" },
+      { "olcu": [24, 32],   "kalip": "ogret_karma",  "not": "Ucu birlikte" },
+
+      { "olcu": [32, 80],   "kalip": "tur_kademe2" },
+      { "olcu": [80, 88],   "kalip": "mola" },
+      { "olcu": [88, 136],  "kalip": "tur_kademe3" },
+      { "olcu": [136, 144], "kalip": "mola" },
+      { "olcu": [144, 192], "kalip": "tur_kademe4" },
+      { "olcu": [192, 200], "kalip": "mola" },
+      { "olcu": [200, 248], "kalip": "final_kademe5" },
+      { "olcu": [248, 264], "kalip": "final_sekizlik", "not": "Son 16 olcu, combo kapak rakamina kosar" }
+    ]
+  },
+
+  "kaliplar": {
+    "_aciklama": "Her kalip 1 olculuk. Dizi uzunlugu 4 = olcunun 4 vurusu. null = o vurusta cue yok.",
+
+    "bos":            [null, null, null, null],
+    "mola":           ["arms_up", null, null, null],
+
+    "ogret_adim":     ["step_L", null, "step_R", null],
+    "ogret_ziplama":  ["jump", null, null, null],
+    "ogret_karma":    ["step_L", null, "jump", null],
+
+    "tur_kademe2":    ["step_L", null, "step_R", null],
+    "tur_kademe3":    ["step_L", "jump", "step_R", "duck"],
+    "tur_kademe4":    ["step_L", "dodge_R", "jump", "dodge_L"],
+    "final_kademe5":  ["step_L", "punch", "step_R", "jump"],
+    "final_sekizlik": ["step_L", "step_R", "jump", "duck"],
+
+    "_varyasyon_notu": "Ayni kalip 48 olcu boyunca aynen tekrarlanirsa sikici olur. Motor, blok icinde kalibi her 8 olculuk cumlede AYNALAR (sol/sag takas) - bu bedava cesitlilik verir ve koreografi dosyasini kisa tutar."
+  },
+
+  "hud": {
+    "combo_gorunur": true,
+    "combo_baslangic": 0,
+    "seviye_etiketi": "LEVEL 1",
+    "epic_esigi": 50,
+    "_epic_not": "Her 50 combo'da EPIC! parlamasi."
+  },
+
+  "kapak": {
+    "ust_metin": "NEW GAME",
+    "seviye_rozeti": "NEW LEVEL 1",
+    "combo_rakami": null,
+    "_combo_not": "Render bitince toplam cue sayisi buraya yazilir ve kapaga basilir. Spoiler degil, meydan okuma."
+  }
+}

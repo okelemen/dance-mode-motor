@@ -1,0 +1,17 @@
+# bagimliliklar
+node_modules/
+
+# uretilen ses: HAM mp3'ten her seferinde yeniden uretilir
+01-muzik/*.wav
+
+# render ciktilari - repoda tutulmaz, Actions artifact olarak iner
+# ** sart: artifact indirmeleri 04-ciktilar altinda ALT KLASOR aciyor
+# ve duz *.mp4 kalibi onlari yakalamiyordu (400 MB'lik video commit'e girdi).
+04-ciktilar/**/*.mp4
+04-ciktilar/**/*.png
+04-ciktilar/*.mp4
+04-ciktilar/*.png
+
+# gecici
+*.crdownload
+*.log

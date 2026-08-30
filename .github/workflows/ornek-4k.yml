@@ -1,0 +1,150 @@
+name: Ornek 4K (paralel parca)
+
+# Tek temanin ornegini GERCEK 4K'da (3840x2160) uretir.
+#
+# Neden paralel: 4K = 8,3 Mpx, 1080p'nin ~4 kati. Tek is olarak 64 olcu
+# (3840 kare) 4-7 saat surer ve Actions'in 6 saatlik sinirinda oynar.
+# 8 parcaya bolununce her parca 480 kare / ~45 dk ve hepsi ayni anda koser.
+#
+# Maliyet uyarisi: 8 is x ~45 dk = ~360 dakika. Private repoda aylik
+# 2000 dakika bedava. Yani bir 4K ornek aylik butcenin ~%18'i.
+# Once 1080p ile onay al, 4K'yi son adim olarak birak.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tema:
+        description: "Gorsel dil: a (neon ritim seridi) veya b (temali kosu)"
+        required: true
+        default: "b"
+        type: choice
+        options: ["b", "a"]
+      toplam_olcu:
+        description: "Toplam olcu (1 olcu = 2 sn). 64 = dort ortam, 2:08"
+        required: true
+        default: "64"
+      parca_olcu:
+        description: "Parca basina olcu (paralel is sayisi = toplam/parca)"
+        required: true
+        default: "8"
+      genislik:
+        required: true
+        default: "3840"
+      yukseklik:
+        required: true
+        default: "2160"
+
+jobs:
+  hazirla:
+    runs-on: ubuntu-latest
+    outputs:
+      matris: ${{ steps.uret.outputs.matris }}
+    steps:
+      - id: uret
+        run: |
+          TOPLAM=${{ github.event.inputs.toplam_olcu }}
+          PARCA=${{ github.event.inputs.parca_olcu }}
+          LISTE=$(python3 -c "
+          import json
+          t=$TOPLAM; p=$PARCA
+          print(json.dumps([{'i':k//p,'baslangic':k,'olcu':min(p,t-k)} for k in range(0,t,p)]))
+          ")
+          echo "matris=$LISTE" >> "$GITHUB_OUTPUT"
+          echo "$LISTE"
+
+  parca:
+    needs: hazirla
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        p: ${{ fromJson(needs.hazirla.outputs.matris) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with: { chrome-version: stable }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - working-directory: 03-motor
+        run: npm install --no-audit --no-fund
+
+      - name: Render parca ${{ matrix.p.i }} (tema ${{ github.event.inputs.tema }})
+        working-directory: 03-motor
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          # --sessiz: parcalara ses eklenmez, birlestirmeden sonra bir kez eklenir
+          node render.js \
+            --w ${{ github.event.inputs.genislik }} \
+            --h ${{ github.event.inputs.yukseklik }} \
+            --baslangic ${{ matrix.p.baslangic }} \
+            --olcu ${{ matrix.p.olcu }} \
+            --tema ${{ github.event.inputs.tema }} \
+            --sessiz \
+            --cikti "../04-ciktilar/parca-$(printf '%03d' ${{ matrix.p.i }}).mp4"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parca-${{ matrix.p.i }}
+          path: 04-ciktilar/parca-*.mp4
+          retention-days: 3
+
+  birlestir:
+    needs: parca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: parca-*
+          path: parcalar
+          merge-multiple: true
+
+      - name: Muzigi uret
+        run: |
+          python3 03-motor/muzik-bolum.py \
+            "01-muzik/bolum-01-neon-grid-HAM.mp3" \
+            "01-muzik/120bpm.wav" \
+            ${{ github.event.inputs.toplam_olcu }}
+
+      - name: Parcalari birlestir ve sesi ekle
+        run: |
+          ls -la parcalar/
+          for f in $(ls parcalar/parca-*.mp4 | sort); do
+            echo "file '$PWD/$f'" >> liste.txt
+          done
+          # ayni kodlama parametreleriyle uretildiler -> yeniden kodlama gereksiz
+          ffmpeg -v error -y -f concat -safe 0 -i liste.txt -c copy govde.mp4
+          ffmpeg -v error -y -i govde.mp4 -i "01-muzik/120bpm.wav" \
+            -c:v copy -c:a aac -b:a 192k -shortest \
+            "ornek-tema-${{ github.event.inputs.tema }}-4k.mp4"
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 \
+            "ornek-tema-${{ github.event.inputs.tema }}-4k.mp4"
+
+      - name: 1080p onizleme
+        run: |
+          # 4K dosya cok buyuk; tarayici guvenlik taramasi bu boyutu bekletiyor.
+          # Once onizlemeye bak, orijinali sadece yayina hazirlarken indir.
+          ffmpeg -v error -y -i "ornek-tema-${{ github.event.inputs.tema }}-4k.mp4" \
+            -vf "scale=1920:1080" \
+            -c:v libx264 -preset slow -b:v 3500k -maxrate 4200k -bufsize 7000k \
+            -c:a aac -b:a 128k onizleme.mp4
+          ls -lh ornek-*.mp4 onizleme.mp4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ONIZLEME-tema-${{ github.event.inputs.tema }}-1080p
+          path: onizleme.mp4
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ORNEK-tema-${{ github.event.inputs.tema }}-4K
+          path: ornek-tema-${{ github.event.inputs.tema }}-4k.mp4
+          retention-days: 14

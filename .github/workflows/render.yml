@@ -1,0 +1,74 @@
+name: Bolum render
+
+# Elle tetiklenir. Ciktilar "Artifacts" bolumunden indirilir.
+on:
+  workflow_dispatch:
+    inputs:
+      olcu:
+        description: "Kac olcu render edilsin (1 olcu = 2 saniye)"
+        required: true
+        default: "16"
+      genislik:
+        description: "Genislik"
+        required: true
+        default: "2560"
+      yukseklik:
+        description: "Yukseklik"
+        required: true
+        default: "1440"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Chrome kur
+        uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: ffmpeg kur
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Paketler
+        working-directory: 03-motor
+        run: npm install --no-audit --no-fund
+
+      - name: Muzigi 120 BPM'e oturt
+        run: |
+          # Suno 122 BPM veriyor; izgara 120 BPM. Ham mp3'ten her seferinde
+          # yeniden uretiliyor - WAV repoda tutulmuyor.
+          ffmpeg -v error -y \
+            -i "01-muzik/bolum-01-neon-grid-HAM.mp3" \
+            -filter:a "atempo=0.98360656,apad" -t 244 -ac 2 -ar 48000 -c:a pcm_s16le \
+            "01-muzik/bolum-01-neon-grid-120bpm.wav"
+          ls -la 01-muzik/
+
+      - name: Render
+        working-directory: 03-motor
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          node render.js \
+            --w ${{ github.event.inputs.genislik }} \
+            --h ${{ github.event.inputs.yukseklik }} \
+            --olcu ${{ github.event.inputs.olcu }} \
+            --cikti ../04-ciktilar/bolum.mp4
+
+      - name: Ciktiyi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: bolum-${{ github.event.inputs.olcu }}olcu-${{ github.event.inputs.yukseklik }}p
+          path: 04-ciktilar/bolum.mp4
+          retention-days: 14

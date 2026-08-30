@@ -1,0 +1,72 @@
+name: A/B ornek render
+
+# Iki gorsel dili YAN YANA uretir: ayni koreografi, ayni muzik, ayni motor.
+# Degisen tek sey gorsel katman.
+#   tema a = soyut ritim seridi (neon, koyu)   -> IP'siz, surdurulebilir
+#   tema b = temali kosu (gunduz, blok dunyasi) -> IP'siz ama "tema" hissi verir
+#
+# Karsilastirmayi ayni sartlarda yapabilmek icin iki is de ayni anda,
+# ayni parametrelerle kosar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      olcu:
+        description: "Kac olcu (1 olcu = 2 saniye). 64 = dort ortamin tamami"
+        required: true
+        default: "64"
+      genislik:
+        required: true
+        default: "1920"
+      yukseklik:
+        required: true
+        default: "1080"
+
+jobs:
+  ornek:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        tema: [a, b]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with: { chrome-version: stable }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - working-directory: 03-motor
+        run: npm install --no-audit --no-fund
+
+      - name: Muzigi 120 BPM'e oturt
+        run: |
+          # WAV repoda tutulmuyor, ham mp3'ten uretiliyor.
+          # NOT: rakip analizi 128-142 BPM bandini olctu; bu deger degisirse
+          # (bkz. docs/RAKIP-ANALIZI-6-KANAL.md) buradaki atempo da degisecek.
+          ffmpeg -v error -y \
+            -i "01-muzik/bolum-01-neon-grid-HAM.mp3" \
+            -filter:a "atempo=0.98360656,apad" -t 244 -ac 2 -ar 48000 -c:a pcm_s16le \
+            "01-muzik/bolum-01-neon-grid-120bpm.wav"
+
+      - name: Render tema ${{ matrix.tema }}
+        working-directory: 03-motor
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          node render.js \
+            --w ${{ github.event.inputs.genislik }} \
+            --h ${{ github.event.inputs.yukseklik }} \
+            --olcu ${{ github.event.inputs.olcu }} \
+            --tema ${{ matrix.tema }} \
+            --cikti "../04-ciktilar/ornek-tema-${{ matrix.tema }}.mp4"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ORNEK-TEMA-${{ matrix.tema }}-${{ github.event.inputs.yukseklik }}p
+          path: 04-ciktilar/ornek-tema-${{ matrix.tema }}.mp4
+          retention-days: 14

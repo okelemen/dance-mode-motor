@@ -1,0 +1,153 @@
+name: Tam bolum render (paralel)
+
+# Uzun bolumler parcalara bolunup PARALEL kosulur, sonra birlestirilir.
+#
+# Neden: 1080p'de olculen hiz ~0.7 kare/sn. Tam bolum 264 olcu = 15.840 kare
+# = tek iste ~6 saat -> GitHub Actions zaman asimi (max 6 saat) sinirinda.
+# 6 parcaya bolununce her parca ~1 saat ve hepsi ayni anda koser.
+
+on:
+  workflow_dispatch:
+    inputs:
+      toplam_olcu:
+        description: "Toplam olcu (tam bolum = 264)"
+        required: true
+        default: "264"
+      parca_olcu:
+        description: "Parca basina olcu (paralel is sayisi = toplam/parca)"
+        required: true
+        default: "44"
+      tema:
+        description: "Gorsel dil: b (onaylanan koyu neon) veya a"
+        required: true
+        default: "b"
+        type: choice
+        options: ["b", "a"]
+      genislik:
+        required: true
+        default: "1920"
+      yukseklik:
+        required: true
+        default: "1080"
+
+jobs:
+  hazirla:
+    runs-on: ubuntu-latest
+    outputs:
+      matris: ${{ steps.uret.outputs.matris }}
+    steps:
+      - id: uret
+        run: |
+          TOPLAM=${{ github.event.inputs.toplam_olcu }}
+          PARCA=${{ github.event.inputs.parca_olcu }}
+          # baslangic olculerini uret: 0,44,88,...
+          LISTE=$(python3 -c "
+          import json
+          t=$TOPLAM; p=$PARCA
+          print(json.dumps([{'i':k//p,'baslangic':k,'olcu':min(p,t-k)} for k in range(0,t,p)]))
+          ")
+          echo "matris=$LISTE" >> "$GITHUB_OUTPUT"
+          echo "$LISTE"
+
+  parca:
+    needs: hazirla
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        p: ${{ fromJson(needs.hazirla.outputs.matris) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with: { chrome-version: stable }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - working-directory: 03-motor
+        run: npm install --no-audit --no-fund
+
+      - name: Render parca ${{ matrix.p.i }}
+        working-directory: 03-motor
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          # --sessiz: parcalara ses eklenmez, birlestirmeden sonra bir kez eklenir
+          # --toplam: sahne final kartini ve ortam gecislerini TAM bolume
+          # gore hesaplamali; --olcu ise yalnizca bu parcanin uzunlugu.
+          node render.js \
+            --w ${{ github.event.inputs.genislik }} \
+            --h ${{ github.event.inputs.yukseklik }} \
+            --tema ${{ github.event.inputs.tema }} \
+            --toplam ${{ github.event.inputs.toplam_olcu }} \
+            --baslangic ${{ matrix.p.baslangic }} \
+            --olcu ${{ matrix.p.olcu }} \
+            --sessiz \
+            --cikti "../04-ciktilar/parca-$(printf '%03d' ${{ matrix.p.i }}).mp4"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parca-${{ matrix.p.i }}
+          path: 04-ciktilar/parca-*.mp4
+          retention-days: 3
+
+  birlestir:
+    needs: parca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: parca-*
+          merge-multiple: true
+          path: parcalar
+
+      - name: Sesi bolum uzunluguna getir
+        run: |
+          # 122 olculuk parca, istenen olcu sayisina yeniden diziliyor:
+          # giris ve cikis birer kez, govde tekrarlaniyor. Tum kesimler
+          # tam olcu sinirinda -> ritim kaymaz, tik olusmaz.
+          python3 03-motor/muzik-bolum.py \
+            "01-muzik/bolum-01-neon-grid-HAM.mp3" \
+            "01-muzik/120bpm.wav" \
+            ${{ github.event.inputs.toplam_olcu }}
+
+      - name: Parcalari birlestir ve sesi ekle
+        run: |
+          ls -la parcalar/
+          # sirali liste - dosya adlari sifir dolgulu oldugu icin sort dogru calisir
+          for f in $(ls parcalar/parca-*.mp4 | sort); do
+            echo "file '$PWD/$f'" >> liste.txt
+          done
+          cat liste.txt
+          # ayni kodlama parametreleriyle uretildiler -> yeniden kodlamaya gerek yok
+          ffmpeg -v error -y -f concat -safe 0 -i liste.txt -c copy govde.mp4
+          ffmpeg -v error -y -i govde.mp4 -i "01-muzik/120bpm.wav" \
+            -c:v copy -c:a aac -b:a 192k -shortest bolum.mp4
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 bolum.mp4
+
+      - name: Kucuk onizleme uret
+        run: |
+          # Tam cozunurluklu dosya 130-190 MB ve tarayici guvenlik taramasi
+          # bu boyutu sik sik bekletiyor. 720p / ~20 MB onizleme sorunsuz
+          # iniyor; orijinali sadece yayina hazirlarken indirmek yeterli.
+          ffmpeg -v error -y -i bolum.mp4 -vf "scale=1280:720" \
+            -c:v libx264 -preset slow -b:v 1350k -maxrate 1600k -bufsize 3000k \
+            -c:a aac -b:a 96k onizleme.mp4
+          ls -lh bolum.mp4 onizleme.mp4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ONIZLEME-${{ github.event.inputs.toplam_olcu }}olcu-720p
+          path: onizleme.mp4
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BOLUM-${{ github.event.inputs.toplam_olcu }}olcu-${{ github.event.inputs.yukseklik }}p
+          path: bolum.mp4
+          retention-days: 14
