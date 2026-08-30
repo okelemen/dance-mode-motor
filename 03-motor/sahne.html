@@ -1241,7 +1241,7 @@ function kademeBaslangic(combo){
   return 0;
 }
 
-function hudCiz(t, combo, epic, kmCombo, seviye, duyuru, sonVurus){
+function hudCiz(t, combo, epic, kmCombo, seviye, duyuru, sonVurus, karistirHud){
   hx.clearRect(0,0,W,H);
   const k = W/1280;
   // B temasinda parlak zeminde beyaz yazi okunmuyor. Her yazi once koyu
@@ -1499,6 +1499,50 @@ function hudCiz(t, combo, epic, kmCombo, seviye, duyuru, sonVurus){
     hx.fillStyle = '#ffffff'; hx.shadowBlur = 20*k;
     hx.fillText('for the next level', 0, 128*k);
     hx.restore();
+  }
+
+  // ------------------------------------------------- ILERLEME HALKASI
+  // Rakiplerin ucunde (Escapify, FLEM, Prime & Prep) ilerleme gostergesi var,
+  // bizde yoktu. 8:48'lik bir videoda "ne kadar kaldi" bilgisi tutma oranina
+  // dogrudan etki ediyor - evde takip eden biri icin bu bir dayanma noktasi.
+  //
+  // Duz cubuk yerine HALKA: sag alt kosede duruyor, karenin hicbir yerini
+  // yatay olarak kesmiyor. Ortasinda KALAN SURE var - yuzde degil, cunku
+  // egzersiz yapan biri icin anlamli olan sayi dakika.
+  {
+    const SON_T = TOPLAM_OLCU * OLCU;
+    const ilerle = Math.max(0, Math.min(1, t / SON_T));
+    const kalan = Math.max(0, SON_T - t);
+    const dk = Math.floor(kalan / 60), sn = Math.floor(kalan % 60);
+    const cx = W - 108*k, cy = H - 120*k, r = 56*k;
+    const vn = Math.max(0, 1 - (t % VURUS) / 0.20);   // vurus nabzi
+
+    hx.save();
+    // koyu disk: yolun kenar hatti halkanin icinden geciyordu, okunmuyordu
+    hx.fillStyle = 'rgba(6,2,16,0.80)';
+    hx.beginPath(); hx.arc(cx, cy, r + 15*k, 0, 6.2832); hx.fill();
+    // arka halka
+    hx.lineWidth = 11*k;
+    hx.strokeStyle = 'rgba(255,255,255,0.16)';
+    hx.beginPath(); hx.arc(cx, cy, r, 0, 6.2832); hx.stroke();
+    // dolan yay - ortamin aksan renginde, 12 yonunden saat yonunde
+    const renk = '#' + karistirHud.getHexString();
+    hx.strokeStyle = renk; hx.lineCap = 'round';
+    hx.shadowColor = renk; hx.shadowBlur = (16 + 12*vn) * k;
+    hx.beginPath();
+    hx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + 6.2832 * ilerle);
+    hx.stroke();
+    hx.shadowBlur = 0; hx.lineCap = 'butt';
+    // kalan sure
+    hx.textAlign = 'center'; hx.textBaseline = 'middle';
+    hx.fillStyle = '#ffffff';
+    hx.font = `700 ${Math.round(30*k)}px Arial Black, sans-serif`;
+    hx.fillText(`${dk}:${String(sn).padStart(2,'0')}`, cx, cy - 2*k);
+    hx.font = `700 ${Math.round(15*k)}px Arial, sans-serif`;
+    hx.fillStyle = 'rgba(255,255,255,0.62)';
+    hx.fillText('LEFT', cx, cy + 24*k);
+    hx.restore();
+    hx.textAlign = 'left'; hx.textBaseline = 'alphabetic';
   }
 
   // ------------------------------------------------- ABONE CAGRISI
@@ -1926,7 +1970,8 @@ function kareKur(n){
     mx.drawImage(canvas, 0, H - PH, PW, PH, 0, 0, PW, PH);
   }
   siluetPaneliCiz(O1.grid[0]);
-  hudCiz(t, combo, sonKm > -90 ? t - sonKm : -1, kmCombo, O1.seviye, duyuru, sonVurus);
+  hudCiz(t, combo, sonKm > -90 ? t - sonKm : -1, kmCombo, O1.seviye, duyuru, sonVurus,
+         karistir(O0.grid[0], O1.grid[0]));
 
   // ortam gecisinde beyaz cakma
   if (cakma > 0){
