@@ -1,0 +1,107 @@
+name: Kesit render
+
+# Bolumun BIR PARCASINI ornek olarak cikarir - detay kontrolu icin.
+#
+# Tam bolum render'i ~50 dk suruyor; bir HUD ogesine veya bir gecise bakmak
+# icin o kadar beklemek anlamsiz. Bu is akisi 16 olculuk (32 sn) bir kesiti
+# ~10 dakikada veriyor.
+#
+# Muzik OFSETLI ekleniyor: video 40. olcuden basliyorsa ses de parcanin
+# 80. saniyesinden basliyor. Yoksa ritim tutmaz.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bolum:
+        description: "Bolum dosyasi (bos birakilirsa motordaki varsayilan)"
+        required: false
+        default: "bolumler/bolum-04.json"
+      baslangic:
+        description: "Kacinci olcuden baslasin"
+        required: true
+        default: "40"
+      olcu:
+        description: "Kac olcu (16 olcu = 32 sn)"
+        required: true
+        default: "16"
+      toplam_olcu:
+        description: "Bolumun TAM uzunlugu - ilerleme halkasi ve final karti buna gore"
+        required: true
+        default: "264"
+      tema:
+        required: true
+        default: "b"
+        type: choice
+        options: ["b", "a"]
+      genislik:
+        required: true
+        default: "1920"
+      yukseklik:
+        required: true
+        default: "1080"
+
+jobs:
+  kesit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with: { chrome-version: stable }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - working-directory: 03-motor
+        run: npm install --no-audit --no-fund
+
+      - name: Bolum muzigini uret
+        run: |
+          python3 03-motor/muzik-bolum.py \
+            "01-muzik/bolum-01-neon-grid-HAM.mp3" \
+            "01-muzik/tam.wav" \
+            ${{ github.event.inputs.toplam_olcu }}
+
+      - name: Render
+        working-directory: 03-motor
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          node render.js \
+            --w ${{ github.event.inputs.genislik }} \
+            --h ${{ github.event.inputs.yukseklik }} \
+            --tema ${{ github.event.inputs.tema }} \
+            --toplam ${{ github.event.inputs.toplam_olcu }} \
+            --baslangic ${{ github.event.inputs.baslangic }} \
+            --olcu ${{ github.event.inputs.olcu }} \
+            ${{ github.event.inputs.bolum && format('--bolum {0}', github.event.inputs.bolum) || '' }} \
+            --sessiz \
+            --cikti ../04-ciktilar/kesit-ham.mp4
+
+      - name: Muzigi ayni ana denk getir
+        run: |
+          # Olcu suresi spec'ten okunuyor - BPM degisirse burasi kendiliginden
+          # dogru kalir, elle guncellemek gerekmez.
+          OFS=$(python3 -c "
+          import json
+          s=json.load(open('spec/sabitler.json'))
+          print(${{ github.event.inputs.baslangic }} * s['izgara']['saniye_per_olcu'])
+          ")
+          SURE=$(python3 -c "
+          import json
+          s=json.load(open('spec/sabitler.json'))
+          print(${{ github.event.inputs.olcu }} * s['izgara']['saniye_per_olcu'])
+          ")
+          echo "ses ofseti: $OFS sn   uzunluk: $SURE sn"
+          ffmpeg -v error -y -i 04-ciktilar/kesit-ham.mp4 \
+            -ss "$OFS" -t "$SURE" -i 01-muzik/tam.wav \
+            -c:v copy -c:a aac -b:a 192k -shortest \
+            04-ciktilar/kesit.mp4
+          ls -lh 04-ciktilar/kesit.mp4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KESIT-olcu${{ github.event.inputs.baslangic }}-${{ github.event.inputs.olcu }}olcu-${{ github.event.inputs.yukseklik }}p
+          path: 04-ciktilar/kesit.mp4
+          retention-days: 14
